@@ -53,3 +53,19 @@ double CalcPz(kx, ky, kz, px, py, pz){
   return pzreco;
 }
 
+double CalcPhi3D(kx, ky, kz, px, py, pz){
+  double ptx = px + kx;
+  double pty = py + ky;
+  double ptz = CalcPz(kx, ky, kz, px, py, pz);
+  double omegax = -kx;
+  double omegay = -ky;
+  double omegaz = pz - ptz;
+  double dot = omegax*px + omegay*py + omegaz*pz;
+  double norm = TMath::Sqrt(omegax*omegax + omegay*omegay + omegaz*omegaz);
+  norm *= TMath::Sqrt(px*px + py*py + pz*pz);
+  if (norm==0){
+    return -999; // again, ill-defined variable
+  }
+  double phi3D = TMath::acos(dot/norm);
+  return phi3D;
+}
