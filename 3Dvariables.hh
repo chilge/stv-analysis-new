@@ -40,8 +40,11 @@ double CalcPz(kx, ky, kz, px, py, pz){
   double protonMass = 0.938; // in GeV
   double neutronMass = 0.939; 
   double muonMass = 0.1069; // all of these can be made more precise...
-  double Eb = 0.0309;
-  double MA = 22*neutronMass + 18*protonMass - 0.3481; // initial nucleus mass
+  //double Eb = 0.0309; // Andy's original value
+  double Eb = 0.02478; // Steven's value
+  
+  //double MA = 22*neutronMass + 18*protonMass - 0.3481; // initial nucleus mass (Andy's value)
+  double MA = 37.215526; // Steven's value
   double MAstar = MA - neutronMass + Eb; // final state neutron mass (average binding energy assumed)
   double Epprime = TMath::Sqrt(protonMass*protonMass + px*px + py*py + pz*pz);
   double Ekprime = TMath::Sqrt(muonMass*muonMass + kx*kx + ky*ky + kz*kz);
