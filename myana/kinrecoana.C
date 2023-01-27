@@ -1245,22 +1245,23 @@ void kinrecoana::Resolution(){
 	TH1D* hddcos_1p_diff        = new TH1D("hddcos_1p_diff",";#Deltacos#theta_{#mu}^{reco}-#Deltacos#theta_{#mu}^{true}",       ddcosdiffnbins,ddcosdifflow,ddcosdiffhigh);
 
 	// neutrino energy (separate positive and negative components)
-        float nudifflow = -2, nudiffhigh = 3; int nudiffnbins = 101;
-        float nufraclow = -1.1, nufrachigh = 3; int nufracnbins = 101;
-	TH1D* henu_diff_true        = new TH1D("henu_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",                   nudiffnbins,nudifflow,nudiffhigh); 
-	TH1D* henu_frac_true        = new TH1D("henu_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",        nufracnbins,nufraclow,nufrachigh);
-	TH1D* henu_diff_reco        = new TH1D("henu_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",                   nudiffnbins,nudifflow,nudiffhigh);
-	TH1D* henu_frac_reco        = new TH1D("henu_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",        nufracnbins,nufraclow,nufrachigh);
+        float nudifflow = -2, nudiffhigh = 3; int nudiffnbins = 101, nudiffnbins_np = 61;
+        float nufraclow = -1.1, nufrachigh = 3; int nufracnbins = 101, nufracnbins_np = 51;
+
+	TH1D* henu_diff_true        = new TH1D("henu_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",                   nudiffnbins_np,nudifflow,nudiffhigh); 
+	TH1D* henu_frac_true        = new TH1D("henu_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",        nufracnbins_np,nufraclow,nufrachigh);
+	TH1D* henu_diff_reco        = new TH1D("henu_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",                   nudiffnbins_np,nudifflow,nudiffhigh);
+	TH1D* henu_frac_reco        = new TH1D("henu_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",        nufracnbins_np,nufraclow,nufrachigh);
 
 	TH1D* henu_1p_diff_true     = new TH1D("henu_1p_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",                nudiffnbins,nudifflow,nudiffhigh);
 	TH1D* henu_1p_frac_true     = new TH1D("henu_1p_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",     nufracnbins,nufraclow,nufrachigh);
 	TH1D* henu_1p_diff_reco     = new TH1D("henu_1p_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",                nudiffnbins,nudifflow,nudiffhigh);
 	TH1D* henu_1p_frac_reco     = new TH1D("henu_1p_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",     nufracnbins,nufraclow,nufrachigh);
 
-	TH1D* henu_diff_true_neg    = new TH1D("henu_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               nudiffnbins,nudifflow,nudiffhigh); 
-	TH1D* henu_frac_true_neg    = new TH1D("henu_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    nufracnbins,nufraclow,nufrachigh);
-	TH1D* henu_diff_reco_neg    = new TH1D("henu_diff_reco_neg",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               nudiffnbins,nudifflow,nudiffhigh);
-	TH1D* henu_frac_reco_neg    = new TH1D("henu_frac_reco_neg",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    nufracnbins,nufraclow,nufrachigh);
+	TH1D* henu_diff_true_neg    = new TH1D("henu_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               nudiffnbins_np,nudifflow,nudiffhigh); 
+	TH1D* henu_frac_true_neg    = new TH1D("henu_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    nufracnbins_np,nufraclow,nufrachigh);
+	TH1D* henu_diff_reco_neg    = new TH1D("henu_diff_reco_neg",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               nudiffnbins_np,nudifflow,nudiffhigh);
+	TH1D* henu_frac_reco_neg    = new TH1D("henu_frac_reco_neg",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    nufracnbins_np,nufraclow,nufrachigh);
 
 	TH1D* henu_1p_diff_true_neg = new TH1D("henu_1p_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",            nudiffnbins,nudifflow,nudiffhigh);
 	TH1D* henu_1p_frac_true_neg = new TH1D("henu_1p_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}", nufracnbins,nufraclow,nufrachigh);
