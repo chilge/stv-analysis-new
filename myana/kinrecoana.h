@@ -60,7 +60,6 @@ public :
    Float_t         nu_completeness_from_pfp;
    Float_t         nu_purity_from_pfp;
    Int_t           nslice;
-   Bool_t          sel_muon_contained;
    Bool_t          sel_nu_mu_cc;
    Bool_t          sel_reco_vertex_in_FV;
    Bool_t          sel_topo_cut_passed;
@@ -155,30 +154,28 @@ public :
    Float_t         kin_reco_enu_diff;
    Float_t         kin_reco_enu_frac;
    Float_t         kin_reco_pmu;
-   Float_t         kin_reco_emu;
    Float_t         kin_reco_costhetamu;
-   //Float_t         kin_reco_thetamu;
    Float_t         kin_reco_pmu_diff;
    Float_t         kin_reco_pmu_frac;
    Float_t         kin_reco_costhetamu_diff;
-   //Float_t         kin_reco_thetamu_diff;
    Int_t           np;
    Int_t           nn;
    Float_t         mc_kin_reco_enu;
    Float_t         mc_kin_reco_enu_diff;
    Float_t         mc_kin_reco_enu_frac;
    Float_t         mc_kin_reco_pmu;
-   Float_t         mc_kin_reco_emu;
    Float_t         mc_kin_reco_costhetamu;
-   //Float_t         mc_kin_reco_thetamu;
    Float_t         mc_kin_reco_pmu_diff;
    Float_t         mc_kin_reco_pmu_frac;
    Float_t         mc_kin_reco_costhetamu_diff;
-   //Float_t         mc_kin_reco_thetamu_diff;
    Int_t           mc_np;
    Int_t           mc_nn;
    TLorentzVector  *mc_p4_had;
    TLorentzVector  *p4_had;
+
+   Bool_t sel_muon_contained;
+   Bool_t mc_sublead_p_in_mom_range;
+   Bool_t sel_sublead_p_passed_mom_cuts;
 
    vector<string>  mc_var_names  = {"mc_kin_reco_enu", "mc_kin_reco_pmu", "mc_kin_reco_costhetamu", "mc_nu_energy", "mc_kin_reco_pmu_diff", 
                                     "mc_kin_reco_pmu_frac", "mc_kin_reco_enu_diff", "mc_kin_reco_enu_frac" };
@@ -231,7 +228,6 @@ public :
    TBranch        *b_nu_completeness_from_pfp;   //!
    TBranch        *b_nu_purity_from_pfp;   //!
    TBranch        *b_nslice;   //!
-   TBranch        *b_sel_muon_contained;   //!
    TBranch        *b_sel_nu_mu_cc;   //!
    TBranch        *b_sel_reco_vertex_in_FV;   //!
    TBranch        *b_sel_topo_cut_passed;   //!
@@ -326,30 +322,28 @@ public :
    TBranch        *b_kin_reco_enu_diff;   //!
    TBranch        *b_kin_reco_enu_frac;   //!
    TBranch        *b_kin_reco_pmu;   //!
-   TBranch        *b_kin_reco_emu;   //!
    TBranch        *b_kin_reco_costhetamu;   //!
-   //TBranch        *b_kin_reco_thetamu;   //!
    TBranch        *b_kin_reco_pmu_diff;   //!
    TBranch        *b_kin_reco_pmu_frac;   //!
    TBranch        *b_kin_reco_costhetamu_diff;   //!
-   //TBranch        *b_kin_reco_thetamu_diff;   //!
    TBranch        *b_np;
    TBranch        *b_nn;
    TBranch        *b_mc_kin_reco_enu;   //!
    TBranch        *b_mc_kin_reco_enu_diff;   //!
    TBranch        *b_mc_kin_reco_enu_frac;   //!
    TBranch        *b_mc_kin_reco_pmu;   //!
-   TBranch        *b_mc_kin_reco_emu;   //!
    TBranch        *b_mc_kin_reco_costhetamu;   //!
-   //TBranch        *b_mc_kin_reco_thetamu;   //!
    TBranch        *b_mc_kin_reco_pmu_diff;   //!
    TBranch        *b_mc_kin_reco_pmu_frac;   //!
    TBranch        *b_mc_kin_reco_costhetamu_diff;   //!
-   //TBranch        *b_mc_kin_reco_thetamu_diff;   //!
    TBranch        *b_mc_np;
    TBranch        *b_mc_nn;
    TBranch        *b_mc_p4_had;
    TBranch        *b_p4_had;
+
+   TBranch *b_sel_muon_contained;
+   TBranch *b_mc_sublead_p_in_mom_range;
+   TBranch *b_sel_sublead_p_passed_mom_cuts;
 
    kinrecoana(TTree *tree=0);
    kinrecoana(string infile="");
@@ -364,7 +358,6 @@ public :
 
    void SetList(bool useMC=false, string opts="");
    Int_t GetHadMult(const Int_t& pdg) const;
-   void Test();
    void EnuEmu();
    void cc1p();
    void ccnp();
@@ -373,6 +366,8 @@ public :
    void Binning();
    void Resolution();
    void ProtonMult();
+   void Plot2p();
+   void SignalDef();
 };
 
 #endif
@@ -562,7 +557,6 @@ void kinrecoana::Init(TTree *tree)
    fChain->SetBranchAddress("nu_completeness_from_pfp", &nu_completeness_from_pfp, &b_nu_completeness_from_pfp);
    fChain->SetBranchAddress("nu_purity_from_pfp", &nu_purity_from_pfp, &b_nu_purity_from_pfp);
    fChain->SetBranchAddress("nslice", &nslice, &b_nslice);
-   fChain->SetBranchAddress("sel_muon_contained", &sel_muon_contained, &b_sel_muon_contained);
    fChain->SetBranchAddress("sel_nu_mu_cc", &sel_nu_mu_cc, &b_sel_nu_mu_cc);
    fChain->SetBranchAddress("sel_reco_vertex_in_FV", &sel_reco_vertex_in_FV, &b_sel_reco_vertex_in_FV);
    fChain->SetBranchAddress("sel_topo_cut_passed", &sel_topo_cut_passed, &b_sel_topo_cut_passed);
@@ -657,30 +651,29 @@ void kinrecoana::Init(TTree *tree)
    fChain->SetBranchAddress("kin_reco_enu_diff", &kin_reco_enu_diff, &b_kin_reco_enu_diff);
    fChain->SetBranchAddress("kin_reco_enu_frac", &kin_reco_enu_frac, &b_kin_reco_enu_frac);
    fChain->SetBranchAddress("kin_reco_pmu", &kin_reco_pmu, &b_kin_reco_pmu);
-   fChain->SetBranchAddress("kin_reco_emu", &kin_reco_emu, &b_kin_reco_emu);
    fChain->SetBranchAddress("kin_reco_costhetamu", &kin_reco_costhetamu, &b_kin_reco_costhetamu);
-   //fChain->SetBranchAddress("kin_reco_thetamu", &kin_reco_thetamu, &b_kin_reco_thetamu);
    fChain->SetBranchAddress("kin_reco_pmu_diff", &kin_reco_pmu_diff, &b_kin_reco_pmu_diff);
    fChain->SetBranchAddress("kin_reco_pmu_frac", &kin_reco_pmu_frac, &b_kin_reco_pmu_frac);
    fChain->SetBranchAddress("kin_reco_costhetamu_diff", &kin_reco_costhetamu_diff, &b_kin_reco_costhetamu_diff);
-   //fChain->SetBranchAddress("kin_reco_thetamu_diff", &kin_reco_thetamu_diff, &b_kin_reco_thetamu_diff);
    fChain->SetBranchAddress("np", &np, &b_np);
    fChain->SetBranchAddress("nn", &nn, &b_nn);
    fChain->SetBranchAddress("mc_kin_reco_enu", &mc_kin_reco_enu, &b_mc_kin_reco_enu);
    fChain->SetBranchAddress("mc_kin_reco_enu_diff", &mc_kin_reco_enu_diff, &b_mc_kin_reco_enu_diff);
    fChain->SetBranchAddress("mc_kin_reco_enu_frac", &mc_kin_reco_enu_frac, &b_mc_kin_reco_enu_frac);
    fChain->SetBranchAddress("mc_kin_reco_pmu", &mc_kin_reco_pmu, &b_mc_kin_reco_pmu);
-   fChain->SetBranchAddress("mc_kin_reco_emu", &mc_kin_reco_emu, &b_mc_kin_reco_emu);
    fChain->SetBranchAddress("mc_kin_reco_costhetamu", &mc_kin_reco_costhetamu, &b_mc_kin_reco_costhetamu);
-   //fChain->SetBranchAddress("mc_kin_reco_thetamu", &mc_kin_reco_thetamu, &b_mc_kin_reco_thetamu);
    fChain->SetBranchAddress("mc_kin_reco_pmu_diff", &mc_kin_reco_pmu_diff, &b_mc_kin_reco_pmu_diff);
    fChain->SetBranchAddress("mc_kin_reco_pmu_frac", &mc_kin_reco_pmu_frac, &b_mc_kin_reco_pmu_frac);
    fChain->SetBranchAddress("mc_kin_reco_costhetamu_diff", &mc_kin_reco_costhetamu_diff, &b_mc_kin_reco_costhetamu_diff);
-   //fChain->SetBranchAddress("mc_kin_reco_thetamu_diff", &mc_kin_reco_thetamu_diff, &b_mc_kin_reco_thetamu_diff);
    fChain->SetBranchAddress("mc_np", &mc_np, &b_mc_np);
    fChain->SetBranchAddress("mc_nn", &mc_nn, &b_mc_nn);
    fChain->SetBranchAddress("mc_p4_had", &mc_p4_had, &b_mc_p4_had);
    fChain->SetBranchAddress("p4_had", &p4_had, &b_p4_had);
+
+   fChain->SetBranchAddress("sel_muon_contained", &sel_muon_contained, &b_sel_muon_contained);
+   fChain->SetBranchAddress("mc_sublead_p_in_mom_range", &mc_sublead_p_in_mom_range, &b_mc_sublead_p_in_mom_range);
+   fChain->SetBranchAddress("sel_sublead_p_passed_mom_cuts", &sel_sublead_p_passed_mom_cuts, &b_sel_sublead_p_passed_mom_cuts);
+
    Notify();
 }
 

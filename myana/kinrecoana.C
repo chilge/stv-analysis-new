@@ -5,7 +5,7 @@
 #include <TCanvas.h>
 #include <TGraph.h>
 
-#include "stv-analysis-new/KinematicReco.hh"
+#include "../KinematicReco.hh"
 
 void Rotate(const Float_t& x, const Float_t&y, Float_t& xprime, Float_t&yprime, const Float_t& slope){
   float theta = atan(1./slope);
@@ -56,7 +56,6 @@ void kinrecoana::DeactivateBranches(){
   fChain->SetBranchStatus("mc_kin_reco_enu",1);
   fChain->SetBranchStatus("mc_kin_reco_enu_diff",1);
   fChain->SetBranchStatus("mc_kin_reco_enu_frac",1);
-  fChain->SetBranchStatus("mc_kin_reco_emu",1);
   fChain->SetBranchStatus("mc_kin_reco_pmu",1);
   fChain->SetBranchStatus("mc_kin_reco_pmu_diff",1);
   fChain->SetBranchStatus("mc_kin_reco_pmu_frac",1);
@@ -72,34 +71,11 @@ void kinrecoana::DeactivateBranches(){
   fChain->SetBranchStatus("kin_reco_enu",1);
   fChain->SetBranchStatus("kin_reco_enu_diff",1);
   fChain->SetBranchStatus("kin_reco_enu_frac",1);
-  fChain->SetBranchStatus("kin_reco_emu",1);
   fChain->SetBranchStatus("kin_reco_pmu",1);
   fChain->SetBranchStatus("kin_reco_pmu_diff",1);
   fChain->SetBranchStatus("kin_reco_pmu_frac",1);
   fChain->SetBranchStatus("kin_reco_costhetamu",1);
   fChain->SetBranchStatus("kin_reco_costhetamu_diff",1);
-}
-
-void kinrecoana::Test() {
-  this->SetList();
-  TH1F* h = new TH1F("h","",100,-1,1);
-
-  for(size_t ientry=0; ientry<1000; ientry++) {
-  //for(size_t ientry=0; ientry<fChain->GetEntries(); ientry++) {
-
-    Int_t entryNumber = fChain->GetEntryNumber(ientry);
-    if(entryNumber < 0) break;
-    fChain->GetEntry(entryNumber);
-
-    TLorentzVector hadvec = GetHadVec(*p3_p_vec);
-    //double enup = KinRecoEnu(hadvec);
-    double enu = KinRecoEnu(kin_reco_emu,hadvec.E());
-     
-    h->Fill(enu-kin_reco_enu);
-    //h->Fill(enu-enup);
-  }
-
-  h->Draw();
 }
 
 Int_t kinrecoana::GetHadMult(const int& pdg) const {
@@ -132,7 +108,7 @@ void kinrecoana::EnuEmu() {
   for(int i=1; i<nmults+1; i++){
 
     string cut;
-    string var1 = "kin_reco_enu", var2 = "kin_reco_emu";
+    string var1 = "kin_reco_enu", var2 = "kin_reco_pmu";
     if(usemc){
       var1 = "mc_" + var1;
       var2 = "mc_" + var2;
@@ -820,25 +796,33 @@ void kinrecoana::cc1p() {
 
 // normalize each row of bins independently 
 // to the integral counts of that row
-// bin occupancy is M_ij = mu_ij/sum_k mu_kj 
-// where mu_ij is bin counts in bin with truth index j, reco index i
-// error in M_ij = sqrt(mu_ij*sum_k,k!=i mu_kj / (sum_k mu_kj)^3 )
 void RowNormalize(TH2D* h){
 
-        cout << "row normalizing..." << endl;
-	TH1D* hreco = h->ProjectionY("hreco");
+        cout << "row normalizing " << h->GetName()  << "..." << endl;
+	TH1D* hreco = h->ProjectionY("hreco",1,h->GetNbinsY()); //ignores under/overflow 
+        //TH1D* hreco = h->ProjectionY("hreco");
 
 	for(int ireco=1; ireco<h->GetNbinsY()+1; ireco++) {
+        //for(int ireco=0; ireco<h->GetNbinsY()+2; ireco++) {
 
-		int nrow = hreco->GetBinContent(ireco); 
+		double nrow = hreco->GetBinContent(ireco); 
 		if(nrow==0) continue;
 
-                float rowfrac=0.;
-		for(int itrue=1; itrue<h->GetNbinsX()+1; itrue++){
-                        float a = h->GetBinContent(itrue,ireco); 
-                        float b = nrow - a;
-			h->SetBinContent(itrue,ireco,a/nrow);
-                        h->SetBinError(itrue,ireco,sqrt(a*b/pow(a+b,3)));
+                double rowfrac=0.;
+		for(int itrue=1; itrue<h->GetNbinsX()+1; itrue++){ // ignore overflow
+
+                        double a = h->GetBinContent(itrue,ireco);
+                        double b = nrow - a;
+                        h->SetBinContent(itrue,ireco,1.*a/nrow);
+                        h->SetBinError(itrue,ireco,sqrt(1.*a*b/pow(a+b,3)));
+
+                        //double frac = a/nrow;
+                        /*if(itrue==ireco){
+                            //double dfrac = 0.;
+                            //if(frac!=0) dfrac = frac*sqrt(1./nrow+1./h->GetBinContent(itrue,ireco));
+                            cout << "Diagonal bin " << itrue << " occupancy: "
+                                 << h->GetBinContent(itrue,ireco) << " +/- " << h->GetBinError(itrue,ireco) << endl;
+                        }*/
                         rowfrac+=h->GetBinContent(itrue,ireco);
 		}//for true bins
                 cout << "total fraction in row " << ireco << ": " << rowfrac << endl;
@@ -846,48 +830,359 @@ void RowNormalize(TH2D* h){
 }
 
 // want >~ 2/3 entries in each reco assigned to correct truth bin
-// want sytematic uncertainties ~ statistical uncertainties
+
 void kinrecoana::Binning() {
 
-	this->SetList(false,"kin_reco_enu>0&&mc_kin_reco_enu>0&&kin_reco_pmu_diff!=9999&&mc_kin_reco_pmu_diff!=9999&&mc_kin_reco_pmu<2.5&&kin_reco_pmu<2.5&&np==1&&mc_np==1&&mc_is_signal");
+        // normalization scale factor for run1 MC -> full POT
+        const double scale = 6.79e20/1.30503e21;
+        const bool plot_dp_1p   = false;
+        const bool plot_dp_np   = false;
+        const bool plot_dcos_1p = false;
+        const bool plot_dcos_np = false;
+        const bool plot_enu_1p  = true;
+        const bool plot_enu_np  = true;
 
+        // mc signal defs
+        // base
+        const string mc_signal_dimensions = "kin_reco_pmu_diff!=9999&&mc_kin_reco_pmu_diff!=9999&&kin_reco_costhetamu_diff!=9999&&mc_kin_reco_costhetamu_diff!=9999&&mc_is_signal";
+        //const string mc_signal_dimensions_physical = mc_signal_dimensions + "&&abs(kin_reco_enu)<6&&abs(mc_kin_reco_enu)<6&&abs(kin_reco_pmu)<6&&abs(mc_kin_reco_pmu)<6";
+        const string mc_signal_dimensions_nu = mc_signal_dimensions;
+        const string mc_signal_dimensions_physical = mc_signal_dimensions + "&&kin_reco_enu>0.033&&mc_kin_reco_enu>0.033&&kin_reco_enu<7&&mc_kin_reco_enu<7&&kin_reco_pmu>0&&mc_kin_reco_pmu>0&&kin_reco_pmu<6.966&&mc_kin_reco_pmu<6.966";
+
+        //const string mc_signal_dimensions_mu_contained = mc_signal_dimensions + "&&reco_muon_contained";
+        const string mc_signal_dimensions_physical_mu_contained = mc_signal_dimensions_physical + "&& sel_muon_contained";
+
+        // 1p
+        const string mc_signal_dimensions_1p = mc_signal_dimensions + "&&np==1&&mc_np==1";
+        const string mc_signal_dimensions_nu_1p = mc_signal_dimensions_nu + "&&np==1&&mc_np==1";
+        const string mc_signal_dimensions_physical_1p = mc_signal_dimensions_physical + "&&np==1&&mc_np==1";
+        //const string mc_signal_dimensions_mu_contained_1p = mc_signal_dimensions_mu_contained + "&&np==1&&mc_np==1";
+        const string mc_signal_dimensions_physical_mu_contained_1p = mc_signal_dimensions_physical_mu_contained + "&&np==1&&mc_np==1";
+
+        // np
+        const string mc_signal_dimensions_np = mc_signal_dimensions + "&&np>1&&mc_np>1";
+        const string mc_signal_dimensions_nu_np = mc_signal_dimensions_nu + "&&np>1&&mc_np>1";
+        const string mc_signal_dimensions_physical_np = mc_signal_dimensions_physical + "&&np>1&&mc_np>1";
+        //const string mc_signal_dimensions_mu_contained_np = mc_signal_dimensions_mu_contained + "&&np>1&&mc_np>1";
+        const string mc_signal_dimensions_physical_mu_contained_np = mc_signal_dimensions_physical_mu_contained + "&&np>1&&mc_np>1";
+
+        // reco only signal defs
+        /*const string signal_dimensions = "kin_reco_pmu_diff!=9999";
+        const string signal_dimensions_physical = signal_dimensions + "&&kin_reco_enu>0&&kin_reco_pmu>0&&kin_reco_pmu<6";
+        const string signal_dimensions_mu_contained = signal_dimensions + "&&reco_muon_contained";
+        const string signal_dimensions_physical_mu_contained = signal_dimensions_physical + "&&reco_muon_contained";
+
+        const string signal_dimensions_1p = signal_dimensions + "&&np==1";
+        const string signal_dimensions_physical_1p = signal_dimensions_physical + "&&np==1";
+        const string signal_dimensions_mu_contained_1p = signal_dimensions_mu_contained + "&&np==1";
+        const string signal_dimensions_physical_mu_contained_1p = signal_dimensions_physical_mu_contained + "&&np==1";
+
+        const string signal_dimensions_np = signal_dimensions + "&&np>1";
+        const string signal_dimensions_physical_np = signal_dimensions_physical + "&&np>1";
+        const string signal_dimensions_mu_contained_np = signal_dimensions_mu_contained + "&&np>1";*/
+
+        //////////////// setup histograms for each measurement (4 total) ///////////
+        //////// p_mu /////////
+        // CC0pi1p //
 	// delta_p in momentum space
-	const size_t nedge = 6;
-	const size_t nbins = nedge-1;
-	//float bins_dp[nedge] = {-1.8,-0.8,-0.22,0.18,0.78,1.8};
-	float bins_dp[nedge] = {-1.5,-0.54,-0.1,0.1,0.6,1.8};
-	TH2D* hdp_mom = new TH2D("hdp_mom",";#Deltap_{true} [GeV/c];#Deltap_{reco} [GeV/c]",nbins,bins_dp,nbins,bins_dp);
+        const size_t nedge_dp_1p = 10;
+        const size_t nbins_dp_1p = nedge_dp_1p-1;
+        float bins_dp_1p[nedge_dp_1p] = {-1.5,-0.8,-0.5,-0.3,-0.15,-0.05,0.02,0.12,0.63,2.5};
+
+	TH2D* hdp_mom_1p = new TH2D("hdp_mom_1p","CC0#pi1p;#Deltap_{#mu}^{true} [GeV/c];#Deltap_{#mu}^{reco} [GeV/c]",nbins_dp_1p,bins_dp_1p,nbins_dp_1p,bins_dp_1p);
 
 	// delta_p in bin space
-	TH2D* hdp_bin = new TH2D("hdp_bin",";#Deltap_{true} [bin number];#Deltap_{reco} [bin number]",nbins,0.5,nbins+0.5,nbins,0.5,nbins+0.5);
-        //TH2D* hdp_bin = new TH2D("hdp_bin",";#Deltap_{true} [bin number];#Deltap_{reco} [bin number]",nbins+2,-0.5,nbins+1.5,nbins+2,-0.5,nbins+1.5);
+	TH2D* hdp_bin_1p = new TH2D("hdp_bin_1p","CC0#pi1p;#Deltap_{#mu}^{true} [bin number];#Deltap_{#mu}^{reco} [bin number]",nbins_dp_1p,0.5,nbins_dp_1p+0.5,nbins_dp_1p,0.5,nbins_dp_1p+0.5);
 
-	fChain->Draw("kin_reco_pmu_diff:mc_kin_reco_pmu_diff>>hdp_mom");
-	gStyle->SetOptStat(0);
+        // CC0piNp, N>1 //
+        // delta_p in momentum space
+        const size_t nedge_dp_np = 5;
+        const size_t nbins_dp_np = nedge_dp_np-1;
+        //float bins_dp_np[nedge_dp_np] = {-1.5,-0.85,-0.13,0.2,3};
+        float bins_dp_np[nedge_dp_np] = {-1.5,-0.65,-0.15,0.13,3};
+
+        TH2D* hdp_mom_np = new TH2D("hdp_mom_np","CC0#piNp;#Deltap_{#mu}^{true} [GeV/c];#Deltap_{#mu}^{reco} [GeV/c]",nbins_dp_np,bins_dp_np,nbins_dp_np,bins_dp_np);
+        //TH2D* hdp_mom_np = new TH2D("hdp_mom_np","CC0#pinp;#Deltap_{#mu}^{true} [GeV/c];#Deltap_{#mu}^{reco} [GeV/c]",50,-3,5,50,-3,5);
+
+
+        // delta_p in bin space
+        TH2D* hdp_bin_np = new TH2D("hdp_bin_np","CC0#piNp;#Deltap_{#mu}^{true} [bin number];#Deltap_{#mu}^{reco} [bin number]",nbins_dp_np,0.5,nbins_dp_np+0.5,nbins_dp_np,0.5,nbins_dp_np+0.5);
+        //TH2D* hdp_bin_np = new TH2D("hdp_bin_np","CC0#pinp;#Deltap_{#mu}^{true} [bin number];#Deltap_{#mu}^{reco} [bin number]",50,0.5,50+0.5,50,0.5,50+0.5);
+
+
+        /////// cos theta_mu ///////////
+        // CC0pi1p //
+        // delta_costheta in costheta space
+        const size_t nedge_dcos_1p = 12;
+        const size_t nbins_dcos_1p = nedge_dcos_1p-1;
+        //float bins_dcos_1p[nedge_dcos_1p] = {-2,-1,-0.63,-0.38,-0.179,-0.033,0.076,0.195,0.36,0.58,0.95,2};
+        float bins_dcos_1p[nedge_dcos_1p] = {-2,-1.2,-0.76,-0.48,-0.26,-0.072,0.076,0.26,0.48,0.7,1.25,2};
+        TH2D* hdcos_ang_1p = new TH2D("hdcos_ang_1p","CC0#pi1p;#Deltacos#theta_{#mu}^{true};#Deltacos#theta_{#mu}^{reco}",nbins_dcos_1p,bins_dcos_1p,nbins_dcos_1p,bins_dcos_1p);
+
+        // delta_costheta in bin space
+        TH2D* hdcos_bin_1p = new TH2D("hdcos_bin_1p","CC0#pi1p;#Deltacos#theta_{#mu}^{true} [bin number];#Deltacos#theta_{#mu}^{reco} [bin number]",nbins_dcos_1p,0.5,nbins_dcos_1p+0.5,nbins_dcos_1p,0.5,nbins_dcos_1p+0.5);
+
+        // CC0piNp //
+        // delta_costheta in costheta space
+        const size_t nedge_dcos_np = 4;
+        const size_t nbins_dcos_np = nedge_dcos_np-1;
+        //float bins_dcos_np[nedge_dcos_np] = {-2,-0.28,0.18,0.8,2};
+        float bins_dcos_np[nedge_dcos_np] = {-2,-0.7,0.2,2};
+
+        TH2D* hdcos_ang_np = new TH2D("hdcos_ang_np","CC0#piNp;#Deltacos#theta_{#mu}^{true};#Deltacos#theta_{#mu}^{reco}",nbins_dcos_np,bins_dcos_np,nbins_dcos_np,bins_dcos_np);
+
+        // delta_costheta in bin space
+        TH2D* hdcos_bin_np = new TH2D("hdcos_bin_np","CC0#piNp;#Deltacos#theta_{#mu}^{true} [bin number];#Deltacos#theta_{#mu}^{reco} [bin number]",nbins_dcos_np,0.5,nbins_dcos_np+0.5,nbins_dcos_np,0.5,nbins_dcos_np+0.5);
+
+
+        /////// Enu ///////////
+        // CC0pi1p //
+        // enu in enu space
+        // pre-stv-ana update
+        /*const size_t nedge_enu_1p = 10;
+        const size_t nbins_enu_1p = nedge_enu_1p-1;
+        float bins_enu_1p[nedge_enu_1p] = {-4,-1.8,0,0.4,0.55,0.75,0.95,1.3,2,4};*/
+
+        // post-update
+        const size_t nedge_enu_1p = 10;
+        const size_t nbins_enu_1p = nedge_enu_1p-1;
+        float bins_enu_1p[nedge_enu_1p] = {-5,-1.7,0,0.39,0.5,0.6,0.75,0.98,1.8,5};
+
+        TH2D* henu_e_1p = new TH2D("henu_e_1p","CC0#pi1p;E_{#nu}^{true} [GeV];E_{#nu}^{reco} [GeV]",nbins_enu_1p,bins_enu_1p,nbins_enu_1p,bins_enu_1p);
+
+        // enu in bin space
+        TH2D* henu_bin_1p = new TH2D("henu_bin_1p","CC0#pi1p;E_{#nu}^{true} [bin number];E_{#nu}^{reco} [bin number]",nbins_enu_1p,0.5,nbins_enu_1p+0.5,nbins_enu_1p,0.5,nbins_enu_1p+0.5);
+
+        // CC0piNp //
+        // enu in enu space
+        const size_t nedge_enu_np = 5;
+        const size_t nbins_enu_np = nedge_enu_np-1;
+        //float bins_enu_np[nedge_enu_np] = {-4,0,0.95,4};
+        float bins_enu_np[nedge_enu_np] = {-5,0,0.6,1.2,5};
+        TH2D* henu_e_np = new TH2D("henu_e_np","CC0#piNp;E_{#nu}^{true} [GeV];E_{#nu}^{reco} [GeV]",nbins_enu_np,bins_enu_np,nbins_enu_np,bins_enu_np);
+
+        // enu in bin space
+        TH2D* henu_bin_np = new TH2D("henu_bin_np","CC0#piNp;E_{#nu}^{true} [bin number];E_{#nu}^{reco} [bin number]",nbins_enu_np,0.5,nbins_enu_np+0.5,nbins_enu_np,0.5,nbins_enu_np+0.5);
+
+
+        //////// fill histograms //////////
+        /// delta P ///
+        // CC0pi1p
+        if(plot_dp_1p){
+          this->SetList(false,mc_signal_dimensions_physical_mu_contained_1p.c_str());
+	  fChain->Draw("kin_reco_pmu_diff:mc_kin_reco_pmu_diff>>hdp_mom_1p");
+          hdp_mom_1p->Scale(scale);
+        }
+
+        // CC0piNp
+        if(plot_dp_np){
+          this->SetList(false,mc_signal_dimensions_physical_mu_contained_np.c_str());
+          fChain->Draw("kin_reco_pmu_diff:mc_kin_reco_pmu_diff>>hdp_mom_np");
+          hdp_mom_np->Scale(scale);
+        }
+
+        /// delta cos theta ///
+        // CC0pi1p
+        if(plot_dcos_1p){
+          this->SetList(false,mc_signal_dimensions_physical_mu_contained_1p.c_str());
+          fChain->Draw("kin_reco_costhetamu_diff:mc_kin_reco_costhetamu_diff>>hdcos_ang_1p");
+          hdcos_ang_1p->Scale(scale);
+        }
+
+        // CC0piNp
+        if(plot_dcos_np){
+          this->SetList(false,mc_signal_dimensions_physical_mu_contained_np.c_str());
+          fChain->Draw("kin_reco_costhetamu_diff:mc_kin_reco_costhetamu_diff>>hdcos_ang_np");
+          hdcos_ang_np->Scale(scale);
+        }
+
+        /// Enu ///
+        // CC0pi1p
+        if(plot_enu_1p){
+          this->SetList(false,mc_signal_dimensions_nu_1p.c_str());
+          fChain->Draw("kin_reco_enu:mc_kin_reco_enu>>henu_e_1p");
+          henu_e_1p->Scale(scale);
+        }
+
+        // CC0piNp
+        if(plot_enu_np){
+          this->SetList(false,mc_signal_dimensions_nu_np.c_str());
+          fChain->Draw("kin_reco_enu:mc_kin_reco_enu>>henu_e_np");
+          henu_e_np->Scale(scale);
+        }
+
+        //////// drawing /////////
+	//gStyle->SetOptStat(1110000); //print under/overflow counts
+        gStyle->SetOptStat(0);
 	gStyle->SetPaintTextFormat("8.3f");
 
-	new TCanvas();
-	TH1D* hdp_mom_reco = hdp_mom->ProjectionY("hdp_mom_reco"); //ProjectionY includes under/overflow bins by default
-	hdp_mom_reco->Sumw2();
-	for(int i=1; i<hdp_mom_reco->GetNbinsX()+1; i++)
-		hdp_mom_reco->SetBinContent(i,1.0*hdp_mom_reco->GetBinContent(i)/hdp_mom_reco->GetBinWidth(i));
-	hdp_mom_reco->Draw("ehist");
+        /// delta_p ///
+        // CC0pi1p //
+        if(plot_dp_1p){
+	  TCanvas* cdp_mom_1p = new TCanvas();
+	  TH1D* hdp_mom_reco_1p = hdp_mom_1p->ProjectionY("hdp_mom_reco_1p"); //ProjectionY includes under/overflow bins by default
+          hdp_mom_reco_1p->Draw("ehist");
 
-	RowNormalize(hdp_mom);
-	for(int i=1; i<nbins+1; i++){ 
-        //for(int i=0; i<nbins+2; i++){
-		for(int j=1; j<nbins+1; j++){
-                //for(int j=0; j<nbins+2; j++){
-			hdp_bin->SetBinContent(i,j,hdp_mom->GetBinContent(i,j));
-		}
-	}  
+          TH1D* hdp_mom_reco_norm_1p = (TH1D*)hdp_mom_reco_1p->Clone("hdp_mom_reco_norm_1p");
+          TCanvas* cdp_mom_norm_1p = new TCanvas();
+	  for(int i=1; i<hdp_mom_reco_norm_1p->GetNbinsX()+1; i++)
+              hdp_mom_reco_norm_1p->SetBinContent(i,1.0*hdp_mom_reco_1p->GetBinContent(i)/hdp_mom_reco_1p->GetBinWidth(i));
+	  hdp_mom_reco_norm_1p->Draw("ehist");
 
-	hdp_bin->GetXaxis()->SetNdivisions(nbins);
-	hdp_bin->GetYaxis()->SetNdivisions(nbins);
-	TCanvas *c = new TCanvas();
-	hdp_bin->Draw("colztexte");
+	  RowNormalize(hdp_mom_1p);
+	  for(int i=1; i<nbins_dp_1p+1; i++){ 
+	      for(int j=1; j<nbins_dp_1p+1; j++){
+	          hdp_bin_1p->SetBinContent(i,j,hdp_mom_1p->GetBinContent(i,j));
+                  hdp_bin_1p->SetBinError(i,j,hdp_mom_1p->GetBinError(i,j));
+	      }
+	  } 
 
-	// delta_costheta
+          hdp_bin_1p->GetXaxis()->SetNdivisions(nbins_dp_1p);
+          hdp_bin_1p->GetYaxis()->SetNdivisions(nbins_dp_1p);
+          TCanvas *cdp_1p = new TCanvas();
+          hdp_bin_1p->Draw("colztexte");
+          cdp_1p->SaveAs("bin_migration_matrix_dp_1p.png");
+        }
+
+        // CC0piNp //
+        if(plot_dp_np){
+          TCanvas* cdp_mom_np = new TCanvas();
+          TH1D* hdp_mom_reco_np = hdp_mom_np->ProjectionY("hdp_mom_reco_np"); //ProjectionY includes under/overflow bins by default
+          hdp_mom_reco_np->Draw("ehist");
+
+          TH1D* hdp_mom_reco_norm_np = (TH1D*)hdp_mom_reco_np->Clone("hdp_mom_reco_norm_np");
+          TCanvas* cdp_mom_norm_np = new TCanvas();
+          for(int i=1; i<hdp_mom_reco_norm_np->GetNbinsX()+1; i++)
+              hdp_mom_reco_norm_np->SetBinContent(i,1.0*hdp_mom_reco_np->GetBinContent(i)/hdp_mom_reco_np->GetBinWidth(i));
+          hdp_mom_reco_norm_np->Draw("ehist");
+
+          RowNormalize(hdp_mom_np);
+          for(int i=1; i<hdp_mom_np->GetNbinsX()+1; i++){
+              for(int j=1; j<hdp_mom_np->GetNbinsY()+1; j++){
+                  hdp_bin_np->SetBinContent(i,j,hdp_mom_np->GetBinContent(i,j));
+                  hdp_bin_np->SetBinError(i,j,hdp_mom_np->GetBinError(i,j));
+              }
+          }
+
+          hdp_bin_np->GetXaxis()->SetNdivisions(hdp_mom_np->GetNbinsX());
+          hdp_bin_np->GetYaxis()->SetNdivisions(hdp_mom_np->GetNbinsY());
+          TCanvas *cdp_np = new TCanvas();
+          hdp_bin_np->Draw("colztexte");
+          cdp_np->SaveAs("bin_migration_matrix_dp_np.png");
+        }
+
+
+        /// delta_costheta ///
+        // CC0pi1p //
+        if(plot_dcos_1p){
+          TCanvas* cdp_ang_1p = new TCanvas();
+          TH1D* hdcos_ang_reco_1p = hdcos_ang_1p->ProjectionY("hdcos_ang_reco_1p"); //ProjectionY includes under/overflow bins by default
+          hdcos_ang_reco_1p->Draw("ehist");
+
+          TH1D* hdcos_ang_reco_norm_1p = (TH1D*)hdcos_ang_reco_1p->Clone("hdcos_ang_reco_norm_1p");
+          TCanvas* cdp_ang_norm_1p = new TCanvas();
+          for(int i=1; i<hdcos_ang_reco_norm_1p->GetNbinsX()+1; i++)
+              hdcos_ang_reco_norm_1p->SetBinContent(i,1.0*hdcos_ang_reco_1p->GetBinContent(i)/hdcos_ang_reco_1p->GetBinWidth(i));
+          hdcos_ang_reco_norm_1p->Draw("ehist");
+
+          RowNormalize(hdcos_ang_1p);
+          for(int i=1; i<hdcos_ang_1p->GetNbinsX()+1; i++){
+              for(int j=1; j<hdcos_ang_1p->GetNbinsY()+1; j++){
+                  hdcos_bin_1p->SetBinContent(i,j,hdcos_ang_1p->GetBinContent(i,j));
+                  hdcos_bin_1p->SetBinError(i,j,hdcos_ang_1p->GetBinError(i,j));
+              }
+          }
+
+          hdcos_bin_1p->GetXaxis()->SetNdivisions(nbins_dcos_1p);
+          hdcos_bin_1p->GetYaxis()->SetNdivisions(nbins_dcos_1p);
+          TCanvas *cdcos_1p = new TCanvas();
+          hdcos_bin_1p->Draw("colztexte");
+          cdcos_1p->SaveAs("bin_migration_matrix_dcos_1p.png");
+        }
+
+        // CC0piNp //
+        if(plot_dcos_np){
+          TCanvas* cdp_ang_np = new TCanvas();
+          TH1D* hdcos_ang_reco_np = hdcos_ang_np->ProjectionY("hdcos_ang_reco_np"); //ProjectionY includes under/overflow bins by default
+          hdcos_ang_reco_np->Draw("ehist");
+
+          TH1D* hdcos_ang_reco_norm_np = (TH1D*)hdcos_ang_reco_np->Clone("hdcos_ang_reco_norm_np");
+          TCanvas* cdp_ang_norm_np = new TCanvas();
+          for(int i=1; i<hdcos_ang_reco_norm_np->GetNbinsX()+1; i++)
+              hdcos_ang_reco_norm_np->SetBinContent(i,1.0*hdcos_ang_reco_np->GetBinContent(i)/hdcos_ang_reco_np->GetBinWidth(i));
+          hdcos_ang_reco_norm_np->Draw("ehist");
+
+          RowNormalize(hdcos_ang_np);
+          for(int i=1; i<nbins_dcos_np+1; i++){
+              for(int j=1; j<nbins_dcos_np+1; j++){
+                  hdcos_bin_np->SetBinContent(i,j,hdcos_ang_np->GetBinContent(i,j));
+                  hdcos_bin_np->SetBinError(i,j,hdcos_ang_np->GetBinError(i,j));
+              }
+          }
+
+          hdcos_bin_np->GetXaxis()->SetNdivisions(nbins_dcos_np);
+          hdcos_bin_np->GetYaxis()->SetNdivisions(nbins_dcos_np);
+          TCanvas *cdcos_np = new TCanvas();
+          hdcos_bin_np->Draw("colztexte");
+          cdcos_np->SaveAs("bin_migration_matrix_dcos_np.png");
+        }
+
+
+        /// Enu ///
+        // CC0pi1p //
+        if(plot_enu_1p){
+          TCanvas* cenu_e_1p = new TCanvas();
+          TH1D* henu_e_reco_1p = henu_e_1p->ProjectionY("henu_e_reco_1p"); //ProjectionY includes under/overflow bins by default
+          henu_e_reco_1p->Draw("ehist");
+
+          TH1D* henu_e_reco_norm_1p = (TH1D*)henu_e_reco_1p->Clone("henu_e_reco_norm_1p");
+          TCanvas* cenu_e_norm_1p = new TCanvas();
+          for(int i=1; i<henu_e_reco_norm_1p->GetNbinsX()+1; i++)
+              henu_e_reco_norm_1p->SetBinContent(i,1.0*henu_e_reco_1p->GetBinContent(i)/henu_e_reco_1p->GetBinWidth(i));
+          henu_e_reco_norm_1p->Draw("ehist");
+
+          RowNormalize(henu_e_1p);
+          for(int i=1; i<henu_e_1p->GetNbinsX()+1; i++){
+              for(int j=1; j<henu_e_1p->GetNbinsY()+1; j++){
+                  henu_bin_1p->SetBinContent(i,j,henu_e_1p->GetBinContent(i,j));
+                  henu_bin_1p->SetBinError(i,j,henu_e_1p->GetBinError(i,j));
+              }
+          }
+
+          henu_bin_1p->GetXaxis()->SetNdivisions(nbins_enu_1p);
+          henu_bin_1p->GetYaxis()->SetNdivisions(nbins_enu_1p);
+          TCanvas *cenu_1p = new TCanvas();
+          henu_bin_1p->Draw("colztexte");
+          cenu_1p->SaveAs("bin_migration_matrix_enu_1p.png");
+        }
+
+       // CC0piNp //
+        if(plot_enu_np){
+          TCanvas* cenu_e_np = new TCanvas();
+          TH1D* henu_e_reco_np = henu_e_np->ProjectionY("henu_e_reco_np"); //ProjectionY includes under/overflow bins by default
+          henu_e_reco_np->Draw("ehist");
+
+          TH1D* henu_e_reco_norm_np = (TH1D*)henu_e_reco_np->Clone("henu_e_reco_norm_np");
+          TCanvas* cenu_e_norm_np = new TCanvas();
+          for(int i=1; i<henu_e_reco_norm_np->GetNbinsX()+1; i++)
+              henu_e_reco_norm_np->SetBinContent(i,1.0*henu_e_reco_np->GetBinContent(i)/henu_e_reco_np->GetBinWidth(i));
+          henu_e_reco_norm_np->Draw("ehist");
+
+          RowNormalize(henu_e_np);
+          for(int i=1; i<henu_e_np->GetNbinsX()+1; i++){
+              for(int j=1; j<henu_e_np->GetNbinsY()+1; j++){
+                  henu_bin_np->SetBinContent(i,j,henu_e_np->GetBinContent(i,j));
+                  henu_bin_np->SetBinError(i,j,henu_e_np->GetBinError(i,j));
+              }
+          }
+
+          henu_bin_np->GetXaxis()->SetNdivisions(nbins_enu_np);
+          henu_bin_np->GetYaxis()->SetNdivisions(nbins_enu_np);
+          TCanvas *cenu_np = new TCanvas();
+          henu_bin_np->Draw("colztexte");
+          cenu_np->SaveAs("bin_migration_matrix_enu_np.png");
+        }
+
 
 }
 
@@ -899,80 +1194,197 @@ void SetResolutionStyle(TH1D* h, bool norm=true){
 
 }
 
+void Fill2DModeHist(TH2D* htmp, TH2D* hfill){
+
+        for(int i=1; i<hfill->GetNbinsY()+1; i++){
+          for(int j=1; j<4; j++) hfill->SetBinContent(j,i,htmp->GetBinContent(j,i));
+          hfill->SetBinContent(4,i,htmp->GetBinContent(11,i));
+        }
+        htmp->Reset();
+        hfill->GetXaxis()->SetBinLabel(1,"QE");
+        hfill->GetXaxis()->SetBinLabel(2,"RES");
+        hfill->GetXaxis()->SetBinLabel(3,"DIS");
+        hfill->GetXaxis()->SetBinLabel(4,"MEC");
+
+}
+
 void kinrecoana::Resolution(){
 
 	// set entry list
-	string mucuts="kin_reco_enu>0&&mc_kin_reco_enu>0&&kin_reco_emu>0.106&&mc_kin_reco_emu>0.106"; //apply this only to muon stuff, trying to select only physical values
-	this->SetList(false,"kin_reco_pmu_diff!=9999&&mc_kin_reco_pmu_diff!=9999&&mc_is_signal"); //sel_CCNp0pi
+	string mucuts="kin_reco_enu>0.033&&mc_kin_reco_enu>0.033&&kin_reco_enu<7&&mc_kin_reco_enu<7&&kin_reco_pmu>0&&mc_kin_reco_pmu>0&&kin_reco_pmu<6.966&&mc_kin_reco_pmu<6.966"; //apply this only to muon stuff, trying to select only physical values
+	this->SetList(false,"kin_reco_pmu_diff!=9999&&mc_kin_reco_pmu_diff!=9999&&mc_is_signal"); //&&reco_muon_contained"); //sel_CCNp0pi
 	fChain->SetMakeClass(0);
 
 	///// LOTS of histograms, avoiding duplication where possible using TH1::Add and TH2::ProjectionX/Y
 	///// Create 1 set of histos for each subsample: CC0pi1p and CC0piNp, N>1
 	///// N.B. histogram binning must match between subsamples
 	// muon kinematics
-	TH2D* hdp_diff   = new TH2D("hdp_diff",  "CC0#piNp (N#geq2);p_{#mu}^{kin-true}-p_{#mu}^{true} [GeV/c];p_{#mu}^{kin-reco}-p_{#mu}^{pndr} [GeV/c]",                       251,-2,3, 251,-2,3);
-	TH2D* hdp_frac   = new TH2D("hdp_frac",  "CC0#piNp (N#geq2);#Deltap_{#mu}^{true}/p_{#mu}^{true};#Deltap_{#mu}^{reco}/p_{#mu}^{pndr}",                                   151,-1.1,5, 151,-1.1,5);
-	TH2D* hdcos_diff = new TH2D("hdcos_diff","CC0#piNp (N#geq2);cos#theta_{#mu}^{kin-true}-cos#theta_{#mu}^{true};cos#theta_{#mu}^{kin-reco}-cos#theta_{#mu}^{pndr}",       251,-2.1,2.1, 251,-2.1,2.1);
+        //  delta distributions
+        float dpdifflow = -2, dpdiffhigh = 3; int dpdiffnbins = 81;
+        float dpfraclow = -1.1, dpfrachigh = 5; int dpfracnbins = 81;
+        float dcosdifflow = -2.1, dcosdiffhigh = 2.1; int dcosdiffnbins = 81;
+	TH2D* hdp_diff       = new TH2D("hdp_diff",  "CC0#piNp (N#geq2);p_{#mu}^{kin-true}-p_{#mu}^{true} [GeV/c];p_{#mu}^{kin-reco}-p_{#mu}^{pndr} [GeV/c]",                    dpdiffnbins,dpdifflow,dpdiffhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+	TH2D* hdp_frac       = new TH2D("hdp_frac",  "CC0#piNp (N#geq2);#Deltap_{#mu}^{true}/p_{#mu}^{true};#Deltap_{#mu}^{reco}/p_{#mu}^{pndr}",                                dpfracnbins,dpfraclow,dpfrachigh,dpfracnbins,dpfraclow,dpfrachigh);
+	TH2D* hdcos_diff     = new TH2D("hdcos_diff","CC0#piNp (N#geq2);cos#theta_{#mu}^{kin-true}-cos#theta_{#mu}^{true};cos#theta_{#mu}^{kin-reco}-cos#theta_{#mu}^{pndr}",    dcosdiffnbins,dcosdifflow,dcosdiffhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
 
-	TH2D* hdp_1p_diff   = new TH2D("hdp_1p_diff",  "CC0#pi1p;p_{#mu}^{kin-true}-p_{#mu}^{true} [GeV/c];p_{#mu}^{kin-reco}-p_{#mu}^{pndr} [GeV/c]",                          251,-2,3, 251,-2,3);
-	TH2D* hdp_1p_frac   = new TH2D("hdp_1p_frac",  "CC0#pi1p;#Deltap_{#mu}^{true}/p_{#mu}^{true};#Deltap_{#mu}^{reco}/p_{#mu}^{pndr}",                                      151,-1.1,5, 151,-1.1,5);
-	TH2D* hdcos_1p_diff = new TH2D("hdcos_1p_diff","CC0#pi1p;cos#theta_{#mu}^{kin-true}-cos#theta_{#mu}^{true};cos#theta_{#mu}^{kin-reco}-cos#theta_{#mu}^{pndr}",          251,-2.1,2.1, 251,-2.1,2.1);
+	TH2D* hdp_1p_diff    = new TH2D("hdp_1p_diff",  "CC0#pi1p;p_{#mu}^{kin-true}-p_{#mu}^{true} [GeV/c];p_{#mu}^{kin-reco}-p_{#mu}^{pndr} [GeV/c]",                          dpdiffnbins,dpdifflow,dpdiffhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+	TH2D* hdp_1p_frac    = new TH2D("hdp_1p_frac",  "CC0#pi1p;#Deltap_{#mu}^{true}/p_{#mu}^{true};#Deltap_{#mu}^{reco}/p_{#mu}^{pndr}",                                      dpfracnbins,dpfraclow,dpfrachigh,dpfracnbins,dpfraclow,dpfrachigh);
+	TH2D* hdcos_1p_diff  = new TH2D("hdcos_1p_diff","CC0#pi1p;cos#theta_{#mu}^{kin-true}-cos#theta_{#mu}^{true};cos#theta_{#mu}^{kin-reco}-cos#theta_{#mu}^{pndr}",          dcosdiffnbins,dcosdifflow,dcosdiffhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
 
-	// delta delta is a combination of kin reco and conventional resolutions kin reco resolution 
-	TH1D* hddp_diff   = new TH1D("hddp_diff",  ";#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true} [GeV/c]", 301,-3,3);
-	TH1D* hddp_frac   = new TH1D("hddp_frac",  ";(#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true})/#Deltap_{#mu}^{true}", 201,-5,5);
-	TH1D* hddcos_diff = new TH1D("hddcos_diff",";#Deltacos#theta_{#mu}^{reco}-#Deltacos#theta_{#mu}^{true}", 401,-2.1,2.1);
 
-	TH1D* hddp_1p_diff   = new TH1D("hddp_1p_diff", ";#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true} [GeV/c]", 301,-3,3);
-	TH1D* hddp_1p_frac   = new TH1D("hddp_1p_frac", ";(#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true})/#Deltap_{#mu}^{true}", 201,-5,5);
-	TH1D* hddcos_1p_diff = new TH1D("hddcos_1p_diff",";#Deltacos#theta_{#mu}^{reco}-#Deltacos#theta_{#mu}^{true}", 401,-2.1,2.1);
+	// delta delta is a combination of kin reco and conventional resolutions kin reco resolution
+        float ddpdifflow = -2, ddpdiffhigh = 2; int ddpdiffnbins = 81;
+        float ddpfraclow = -4, ddpfrachigh = 4; int ddpfracnbins = 81;
+        float ddcosdifflow = -1.8, ddcosdiffhigh = 1.8; int ddcosdiffnbins = 151;
+	TH1D* hddp_diff             = new TH1D("hddp_diff",  ";#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true} [GeV/c]",                  ddpdiffnbins,ddpdifflow,ddpdiffhigh);
+	TH1D* hddp_frac             = new TH1D("hddp_frac",  ";(#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true})/#Deltap_{#mu}^{true}",   ddpfracnbins,ddpfraclow,ddpfrachigh);
+	TH1D* hddcos_diff           = new TH1D("hddcos_diff",";#Deltacos#theta_{#mu}^{reco}-#Deltacos#theta_{#mu}^{true}",          ddcosdiffnbins,ddcosdifflow,ddcosdiffhigh);
+
+	TH1D* hddp_1p_diff          = new TH1D("hddp_1p_diff", ";#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true} [GeV/c]",                ddpdiffnbins,ddpdifflow,ddpdiffhigh);
+	TH1D* hddp_1p_frac          = new TH1D("hddp_1p_frac", ";(#Deltap_{#mu}^{reco}-#Deltap_{#mu}^{true})/#Deltap_{#mu}^{true}", ddpfracnbins,ddpfraclow,ddpfrachigh);
+	TH1D* hddcos_1p_diff        = new TH1D("hddcos_1p_diff",";#Deltacos#theta_{#mu}^{reco}-#Deltacos#theta_{#mu}^{true}",       ddcosdiffnbins,ddcosdifflow,ddcosdiffhigh);
 
 	// neutrino energy (separate positive and negative components)
-	TH1D* henu_diff_true = new TH1D("henu_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               301,-4,4); 
-	TH1D* henu_frac_true = new TH1D("henu_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
-	TH1D* henu_diff_reco = new TH1D("henu_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               301,-4,4);
-	TH1D* henu_frac_reco = new TH1D("henu_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
+        float nudifflow = -2, nudiffhigh = 3; int nudiffnbins = 101;
+        float nufraclow = -1.1, nufrachigh = 3; int nufracnbins = 101;
+	TH1D* henu_diff_true        = new TH1D("henu_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",                   nudiffnbins,nudifflow,nudiffhigh); 
+	TH1D* henu_frac_true        = new TH1D("henu_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",        nufracnbins,nufraclow,nufrachigh);
+	TH1D* henu_diff_reco        = new TH1D("henu_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",                   nudiffnbins,nudifflow,nudiffhigh);
+	TH1D* henu_frac_reco        = new TH1D("henu_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",        nufracnbins,nufraclow,nufrachigh);
 
-	TH1D* henu_1p_diff_true = new TH1D("henu_1p_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               301,-4,4);
-	TH1D* henu_1p_frac_true = new TH1D("henu_1p_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
-	TH1D* henu_1p_diff_reco = new TH1D("henu_1p_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               301,-4,4);
-	TH1D* henu_1p_frac_reco = new TH1D("henu_1p_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
+	TH1D* henu_1p_diff_true     = new TH1D("henu_1p_diff_true",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",                nudiffnbins,nudifflow,nudiffhigh);
+	TH1D* henu_1p_frac_true     = new TH1D("henu_1p_frac_true",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",     nufracnbins,nufraclow,nufrachigh);
+	TH1D* henu_1p_diff_reco     = new TH1D("henu_1p_diff_reco",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",                nudiffnbins,nudifflow,nudiffhigh);
+	TH1D* henu_1p_frac_reco     = new TH1D("henu_1p_frac_reco",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",     nufracnbins,nufraclow,nufrachigh);
 
-	TH1D* henu_diff_true_neg = new TH1D("henu_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               301,-4,4); 
-	TH1D* henu_frac_true_neg = new TH1D("henu_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
-	TH1D* henu_diff_reco_neg = new TH1D("henu_diff_reco_neg",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               301,-4,4);
-	TH1D* henu_frac_reco_neg = new TH1D("henu_frac_reco_neg",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
+	TH1D* henu_diff_true_neg    = new TH1D("henu_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               nudiffnbins,nudifflow,nudiffhigh); 
+	TH1D* henu_frac_true_neg    = new TH1D("henu_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    nufracnbins,nufraclow,nufrachigh);
+	TH1D* henu_diff_reco_neg    = new TH1D("henu_diff_reco_neg",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               nudiffnbins,nudifflow,nudiffhigh);
+	TH1D* henu_frac_reco_neg    = new TH1D("henu_frac_reco_neg",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    nufracnbins,nufraclow,nufrachigh);
 
-	TH1D* henu_1p_diff_true_neg = new TH1D("henu_1p_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",               301,-4,4);
-	TH1D* henu_1p_frac_true_neg = new TH1D("henu_1p_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
-	TH1D* henu_1p_diff_reco_neg = new TH1D("henu_1p_diff_reco_neg",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",               301,-4,4);
-	TH1D* henu_1p_frac_reco_neg = new TH1D("henu_1p_frac_reco_neg",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}",    201,-1.1,4);
+	TH1D* henu_1p_diff_true_neg = new TH1D("henu_1p_diff_true_neg",";E_{#nu}^{kin-true}-E_{#nu}^{true} [GeV]",            nudiffnbins,nudifflow,nudiffhigh);
+	TH1D* henu_1p_frac_true_neg = new TH1D("henu_1p_frac_true_neg",";(E_{#nu}^{kin-true}-E_{#nu}^{true})/E_{#nu}^{true}", nufracnbins,nufraclow,nufrachigh);
+	TH1D* henu_1p_diff_reco_neg = new TH1D("henu_1p_diff_reco_neg",";E_{#nu}^{kin-reco}-E_{#nu}^{true} [GeV]",            nudiffnbins,nudifflow,nudiffhigh);
+	TH1D* henu_1p_frac_reco_neg = new TH1D("henu_1p_frac_reco_neg",";(E_{#nu}^{kin-reco}-E_{#nu}^{true})/E_{#nu}^{true}", nufracnbins,nufraclow,nufrachigh);
 
 	// hadronic system kinematics
-	TH2D* hphad         = new TH2D("hphad",        "CC0#piNp (N#geq2);p_{had}^{true} [GeV/c]; p_{had}^{reco} [GeV/c]",301,0,2.5,301,0,2.5);
-	TH2D* hphad_1p      = new TH2D("hphad_1p",     "CC0#pi1p;p_{had}^{true} [GeV/c]; p_{had}^{reco} [GeV/c]",        301,0,1.5,301,0,1.5);
-	TH1D* hphad_diff    = new TH1D("hphad_diff",   ";p_{had}^{reco} - p_{had}^{true} [GeV/c]",       401,-1,1.5);
-	TH1D* hphad_1p_diff = new TH1D("hphad_1p_diff",";p_{had}^{reco} - p_{had}^{true} [GeV/c]",       401,-1,1.5);
+        float wlow = 0.8, whigh = 2.1; int wnbins = 151;
+        float phadlow = 0., phadhigh = 1.8; int phadnbins = 81;
+        float coshadlow = 0, coshadhigh = 1.01; int coshadnbins = 81;
 
-	TH2D* hcoshad         = new TH2D("hcoshad",        "CC0#piNp (N#geq2);cos#theta_{had}^{true}; cos#theta_{had}^{reco}", 301,-1.1,1.1,301,-1.1,1.1);
-	TH2D* hcoshad_1p      = new TH2D("hcoshad_1p",     "CC0#pi1p;cos#theta_{had}^{true}; cos#theta_{had}^{reco}", 301,-1.1,1.1,301,-1.1,1.1);
-	TH1D* hcoshad_diff    = new TH1D("hcoshad_diff",   ";cos#theta_{had}^{reco} - cos#theta_{had}^{true}",301,-1.1,1.1);
-	TH1D* hcoshad_1p_diff = new TH1D("hcoshad_1p_diff",";cos#theta_{had}^{reco} - cos#theta_{had}^{true}",301,-1.1,1.1);
+	TH2D* hphad            = new TH2D("hphad",        "CC0#piNp (N#geq2);p_{had}^{true} [GeV/c]; p_{had}^{reco} [GeV/c]",   phadnbins,phadlow,phadhigh,phadnbins,phadlow,phadhigh);
+	TH2D* hphad_1p         = new TH2D("hphad_1p",     "CC0#pi1p;p_{had}^{true} [GeV/c]; p_{had}^{reco} [GeV/c]",            phadnbins,phadlow,phadhigh,phadnbins,phadlow,phadhigh);
+	TH1D* hphad_diff       = new TH1D("hphad_diff",   ";p_{had}^{reco} - p_{had}^{true} [GeV/c]",                           201,-1.5,1.5);
+	TH1D* hphad_1p_diff    = new TH1D("hphad_1p_diff",";p_{had}^{reco} - p_{had}^{true} [GeV/c]",                           201,-1.5,1.5);
 
-	TH2D* hwhad         = new TH2D("hwhad",         "CC0#piNp (N#geq2);W_{true} [GeV];W_{reco} [GeV]", 201,-2,2,201,-3,1.5);
-	TH2D* hwhad_1p      = new TH2D("hwhad_1p",      "CC0#pi1p;W_{true} [GeV];W_{reco} [GeV]",         201,0,1.5,201,0,1.5);
-	TH1D* hwhad_diff    = new TH1D("hwhad_diff",    ";W_{reco} - W_{true} [GeV]",     401,-4,3);
-	TH1D* hwhad_1p_diff = new TH1D("hwhad_1p_diff", ";W_{reco} - W_{true} [GeV]",     401,-4,3);
+	TH2D* hcoshad          = new TH2D("hcoshad",        "CC0#piNp (N#geq2);cos#theta_{had}^{true}; cos#theta_{had}^{reco}", coshadnbins,coshadlow,coshadhigh,coshadnbins,coshadlow,coshadhigh);
+	TH2D* hcoshad_1p       = new TH2D("hcoshad_1p",     "CC0#pi1p;cos#theta_{had}^{true}; cos#theta_{had}^{reco}",          coshadnbins,coshadlow,coshadhigh,coshadnbins,coshadlow,coshadhigh);
+	TH1D* hcoshad_diff     = new TH1D("hcoshad_diff",   ";cos#theta_{had}^{reco} - cos#theta_{had}^{true}",                 201,-1.1,1.1);
+	TH1D* hcoshad_1p_diff  = new TH1D("hcoshad_1p_diff",";cos#theta_{had}^{reco} - cos#theta_{had}^{true}",                 201,-1.1,1.1);
 
-	TH2D* hwphad_true      = new TH2D("hwphad_true",   "CC0#piNp (N#geq2);p_{had}^{true} [GeV/c];W^{true} [GeV]",301,0,3,301,-3,2);
-	TH2D* hwphad_reco      = new TH2D("hwphad_reco",   "CC0#piNp (N#geq2);p_{had}^{reco} [GeV/c];W^{reco} [GeV]",301,0,3,301,-3,2);
-	TH2D* hwphad_1p_true   = new TH2D("hwphad_1p_true","CC0#pi1p;p_{had}^{true} [GeV/c];W^{true} [GeV]",         301,0,3,301,0,2);
-	TH2D* hwphad_1p_reco   = new TH2D("hwphad_1p_reco","CC0#pi1p;p_{had}^{reco} [GeV/c];W^{reco} [GeV]",         301,0,3,301,0,2);
+	TH2D* hwhad            = new TH2D("hwhad",         "CC0#piNp (N#geq2);W_{true} [GeV];W_{reco} [GeV]",                   wnbins,wlow,whigh,wnbins,wlow,whigh);
+	TH2D* hwhad_1p         = new TH2D("hwhad_1p",      "CC0#pi1p;W_{true} [GeV];W_{reco} [GeV]",                            wnbins,wlow,whigh,wnbins,wlow,whigh);
+	TH1D* hwhad_diff       = new TH1D("hwhad_diff",    ";W_{reco} - W_{true} [GeV]",                                        81,-0.8,0.8);
+	TH1D* hwhad_1p_diff    = new TH1D("hwhad_1p_diff", ";W_{reco} - W_{true} [GeV]",                                        81,-0.8,0.8);
 
-	TH2D* hwcoshad_true    = new TH2D("hwcoshad_true",   "CC0#piNp (N#geq2);cos#theta_{had}^{true} [GeV/c];W^{true} [GeV]",301,-1.1,1.1,301,-3,2);
-	TH2D* hwcoshad_reco    = new TH2D("hwcoshad_reco",   "CC0#piNp (N#geq2);cos#theta_{had}^{reco} [GeV/c];W^{reco} [GeV]",301,-1.1,1.1,301,-3,2);
-	TH2D* hwcoshad_1p_true = new TH2D("hwcoshad_1p_true","CC0#pi1p;cos#theta_{had}^{true} [GeV/c];W^{true} [GeV]",        301,-1.1,1.1,301,0,2);
-	TH2D* hwcoshad_1p_reco = new TH2D("hwcoshad_1p_reco","CC0#pi1p;cos#theta_{had}^{reco} [GeV/c];W^{reco} [GeV]",        301,-1.1,1.1,301,0,2);
+	TH2D* hwphad_true      = new TH2D("hwphad_true",   "CC0#piNp (N#geq2);p_{had}^{true} [GeV/c];W^{true} [GeV]",           phadnbins,phadlow,phadhigh,wnbins,wlow,whigh);
+	TH2D* hwphad_reco      = new TH2D("hwphad_reco",   "CC0#piNp (N#geq2);p_{had}^{reco} [GeV/c];W^{reco} [GeV]",           phadnbins,phadlow,phadhigh,wnbins,wlow,whigh);
+	TH2D* hwphad_1p_true   = new TH2D("hwphad_1p_true","CC0#pi1p;p_{had}^{true} [GeV/c];W^{true} [GeV]",                    phadnbins,phadlow,phadhigh,wnbins,wlow,whigh);
+	TH2D* hwphad_1p_reco   = new TH2D("hwphad_1p_reco","CC0#pi1p;p_{had}^{reco} [GeV/c];W^{reco} [GeV]",                    phadnbins,phadlow,phadhigh,wnbins,wlow,whigh);
+
+	TH2D* hwcoshad_true    = new TH2D("hwcoshad_true",   "CC0#piNp (N#geq2);cos#theta_{had}^{true} [GeV/c];W^{true} [GeV]", coshadnbins,coshadlow,coshadhigh,wnbins,wlow,whigh);
+	TH2D* hwcoshad_reco    = new TH2D("hwcoshad_reco",   "CC0#piNp (N#geq2);cos#theta_{had}^{reco} [GeV/c];W^{reco} [GeV]", coshadnbins,coshadlow,coshadhigh,wnbins,wlow,whigh);
+	TH2D* hwcoshad_1p_true = new TH2D("hwcoshad_1p_true","CC0#pi1p;cos#theta_{had}^{true} [GeV/c];W^{true} [GeV]",          coshadnbins,coshadlow,coshadhigh,wnbins,wlow,whigh);
+	TH2D* hwcoshad_1p_reco = new TH2D("hwcoshad_1p_reco","CC0#pi1p;cos#theta_{had}^{reco} [GeV/c];W^{reco} [GeV]",          coshadnbins,coshadlow,coshadhigh,wnbins,wlow,whigh);
+
+        //delta distributions as functions of muon or proton kinematics
+        double pmulow = 0, pmuhigh = 1.2, pmunbins = 50;
+        double cosmulow = -1.1, cosmuhigh = 1.1, cosmunbins = 50;
+        TH2D* hdp_v_pmu_true    = new TH2D("hdp_v_pmu_true",   "CC0#piNp (N#geq2);p_{#mu}^{true};#Deltap_{#mu}^{true}", pmunbins,pmulow,pmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_cosmu_true  = new TH2D("hdp_v_cosmu_true", "CC0#piNp (N#geq2);cos#theta_{#mu}^{true};#Deltap_{#mu}^{true}",cosmunbins,cosmulow,cosmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_phad_true   = new TH2D("hdp_v_phad_true",  "CC0#piNp (N#geq2);p_{had}^{true};#Deltap_{#mu}^{true}",phadnbins,phadlow,phadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_coshad_true = new TH2D("hdp_v_coshad_true","CC0#piNp (N#geq2);cos#theta_{had}^{true};#Deltap_{#mu}^{true}",coshadnbins,coshadlow,coshadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+
+        TH2D* hdp_v_pmu_reco    = new TH2D("hdp_v_pmu_reco",   "CC0#piNp (N#geq2);p_{#mu}^{reco};#Deltap_{#mu}^{reco}", pmunbins,pmulow,pmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_cosmu_reco  = new TH2D("hdp_v_cosmu_reco", "CC0#piNp (N#geq2);cos#theta_{#mu}^{reco};#Deltap_{#mu}^{reco}",cosmunbins,cosmulow,cosmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_phad_reco   = new TH2D("hdp_v_phad_reco",  "CC0#piNp (N#geq2);p_{had}^{reco};#Deltap_{#mu}^{reco}",phadnbins,phadlow,phadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_coshad_reco = new TH2D("hdp_v_coshad_reco","CC0#piNp (N#geq2);cos#theta_{had}^{reco};#Deltap_{#mu}^{reco}",coshadnbins,coshadlow,coshadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+
+        TH2D* hdp_1p_v_pmu_true    = new TH2D("hdp_1p_v_pmu_true",   "CC0#pi1p;p_{#mu}^{true};#Deltap_{#mu}^{true}",pmunbins,pmulow,pmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_cosmu_true  = new TH2D("hdp_1p_v_cosmu_true", "CC0#pi1p;cos#theta_{#mu}^{true};#Deltap_{#mu}^{true}",cosmunbins,cosmulow,cosmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_phad_true   = new TH2D("hdp_1p_v_phad_true",  "CC0#pi1p;p_{had}^{true};#Deltap_{#mu}^{true}",phadnbins,phadlow,phadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_coshad_true = new TH2D("hdp_1p_v_coshad_true","CC0#pi1p;cos#theta_{had}^{true};#Deltap_{#mu}^{true}",coshadnbins,coshadlow,coshadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+
+        TH2D* hdp_1p_v_pmu_reco    = new TH2D("hdp_1p_v_pmu_reco",   "CC0#pi1p;p_{#mu}^{reco};#Deltap_{#mu}^{reco}",pmunbins,pmulow,pmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_cosmu_reco  = new TH2D("hdp_1p_v_cosmu_reco", "CC0#pi1p;cos#theta_{#mu}^{reco};#Deltap_{#mu}^{reco}",cosmunbins,cosmulow,cosmuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_phad_reco   = new TH2D("hdp_1p_v_phad_reco",  "CC0#pi1p;p_{had}^{reco};#Deltap_{#mu}^{reco}",phadnbins,phadlow,phadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_coshad_reco = new TH2D("hdp_1p_v_coshad_reco","CC0#pi1p;cos#theta_{had}^{reco};#Deltap_{#mu}^{reco}",coshadnbins,coshadlow,coshadhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+
+        TH2D* hdcos_v_pmu_true    = new TH2D("hdcos_v_pmu_true",   "CC0#piNp (N#geq2);p_{#mu}^{true};#Deltacos#theta_{#mu}^{true}", pmunbins,pmulow,pmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_cosmu_true  = new TH2D("hdcos_v_cosmu_true", "CC0#piNp (N#geq2);cos#theta_{#mu}^{true};#Deltacos#theta_{#mu}^{true}",cosmunbins,cosmulow,cosmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_phad_true   = new TH2D("hdcos_v_phad_true",  "CC0#piNp (N#geq2);p_{had}^{true};#Deltacos#theta_{#mu}^{true}",phadnbins,phadlow,phadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_coshad_true = new TH2D("hdcos_v_coshad_true","CC0#piNp (N#geq2);cos#theta_{had}^{true};#Deltacos#theta_{#mu}^{true}",coshadnbins,coshadlow,coshadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+
+        TH2D* hdcos_v_pmu_reco    = new TH2D("hdcos_v_pmu_reco",   "CC0#piNp (N#geq2);p_{#mu}^{reco};#Deltacos#theta_{#mu}^{reco}", pmunbins,pmulow,pmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_cosmu_reco  = new TH2D("hdcos_v_cosmu_reco", "CC0#piNp (N#geq2);cos#theta_{#mu}^{reco};#Deltacos#theta_{#mu}^{reco}",cosmunbins,cosmulow,cosmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_phad_reco   = new TH2D("hdcos_v_phad_reco",  "CC0#piNp (N#geq2);p_{had}^{reco};#Deltacos#theta_{#mu}^{reco}",phadnbins,phadlow,phadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_coshad_reco = new TH2D("hdcos_v_coshad_reco","CC0#piNp (N#geq2);cos#theta_{had}^{reco};#Deltacos#theta_{#mu}^{reco}",coshadnbins,coshadlow,coshadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+
+        TH2D* hdcos_1p_v_pmu_true    = new TH2D("hdcos_1p_v_pmu_true",   "CC0#pi1p;p_{#mu}^{true};#Deltacos#theta_{#mu}^{true}",pmunbins,pmulow,pmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_cosmu_true  = new TH2D("hdcos_1p_v_cosmu_true", "CC0#pi1p;cos#theta_{#mu}^{true};#Deltacos#theta_{#mu}^{true}",cosmunbins,cosmulow,cosmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_phad_true   = new TH2D("hdcos_1p_v_phad_true",  "CC0#pi1p;p_{had}^{true};#Deltacos#theta_{#mu}^{true}",phadnbins,phadlow,phadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_coshad_true = new TH2D("hdcos_1p_v_coshad_true","CC0#pi1p;cos#theta_{had}^{true};#Deltacos#theta_{#mu}^{true}",coshadnbins,coshadlow,coshadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+
+        TH2D* hdcos_1p_v_pmu_reco    = new TH2D("hdcos_1p_v_pmu_reco",   "CC0#pi1p;p_{#mu}^{reco};#Deltacos#theta_{#mu}^{reco}",pmunbins,pmulow,pmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_cosmu_reco  = new TH2D("hdcos_1p_v_cosmu_reco", "CC0#pi1p;cos#theta_{#mu}^{reco};#Deltacos#theta_{#mu}^{reco}",cosmunbins,cosmulow,cosmuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_phad_reco   = new TH2D("hdcos_1p_v_phad_reco",  "CC0#pi1p;p_{had}^{reco};#Deltacos#theta_{#mu}^{reco}",phadnbins,phadlow,phadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_coshad_reco = new TH2D("hdcos_1p_v_coshad_reco","CC0#pi1p;cos#theta_{had}^{reco};#Deltacos#theta_{#mu}^{reco}",coshadnbins,coshadlow,coshadhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+
+        float nulow = 0., nuhigh = 1.0, nunbins = 40;
+        TH2D* hdp_v_nu_true    = new TH2D("hdp_v_nu_true",   "CC0#piNp (N#geq2);E_{#nu}^{true}-E_{#mu}^{true};#Deltap_{#mu}^{true}", nunbins,nulow,nuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_nu_reco    = new TH2D("hdp_v_nu_reco",   "CC0#piNp (N#geq2);E_{#nu}^{true}-E_{#mu}^{true};#Deltap_{#mu}^{reco}", nunbins,nulow,nuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_nu_true    = new TH2D("hdp_1p_v_nu_true",   "CC0#pi1p;E_{#nu}^{true}-E_{#mu}^{true};#Deltap_{#mu}^{true}", nunbins,nulow,nuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_nu_reco    = new TH2D("hdp_1p_v_nu_reco",   "CC0#pi1p;E_{#nu}^{true}-E_{#mu}^{true};#Deltap_{#mu}^{reco}", nunbins,nulow,nuhigh,dpdiffnbins,dpdifflow,dpdiffhigh);
+
+        TH2D* hdcos_v_nu_true    = new TH2D("hdcos_v_nu_true",    "CC0#piNp (N#geq2);E_{#nu}^{true}-E_{#mu}^{true};#Deltacos#theta_{#mu}^{true}",nunbins,nulow,nuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_nu_reco    = new TH2D("hdcos_v_nu_reco",    "CC0#piNp (N#geq2);E_{#nu}^{true}-E_{#mu}^{true};#Deltacos#theta_{#mu}^{reco}",nunbins,nulow,nuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_nu_true = new TH2D("hdcos_1p_v_nu_true", "CC0#pi1p;E_{#nu}^{true}-E_{#mu}^{true};#Deltacos#theta_{#mu}^{true}",nunbins,nulow,nuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_nu_reco = new TH2D("hdcos_1p_v_nu_reco", "CC0#pi1p;E_{#nu}^{true}-E_{#mu}^{true};#Deltacos#theta_{#mu}^{reco}",nunbins,nulow,nuhigh,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+
+        // deltas vs. interaction mode w/4 x-bins for QE,RES,DIS,MEC
+        TH2D* hdp_v_mode_tmp    = new TH2D("hdp_v_mode_tmp","",11,0,11,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_mode_true    = new TH2D("hdp_v_mode_true","CC0#piNp (N#geq2);;#Deltap_{#mu}^{true}",4,0,4,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_v_mode_reco    = new TH2D("hdp_v_mode_reco","CC0#piNp (N#geq2);;#Deltap_{#mu}^{reco}",4,0,4,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_mode_true = new TH2D("hdp_1p_v_mode_true","CC0#pi1p;;#Deltap_{#mu}^{true}",4,0,4,dpdiffnbins,dpdifflow,dpdiffhigh);
+        TH2D* hdp_1p_v_mode_reco = new TH2D("hdp_1p_v_mode_reco","CC0#pi1p;;#Deltap_{#mu}^{reco}",4,0,4,dpdiffnbins,dpdifflow,dpdiffhigh);
+
+        TH2D* hdcos_v_mode_tmp    = new TH2D("hdcos_v_mode_tmp","",11,0,11,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_mode_true    = new TH2D("hdcos_v_mode_true","CC0#piNp (N#geq2);;#Deltacos#theta_{#mu}^{true}",4,0,4,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_v_mode_reco    = new TH2D("hdcos_v_mode_reco","CC0#piNp (N#geq2);;#Deltacos#theta_{#mu}^{reco}",4,0,4,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_mode_true = new TH2D("hdcos_1p_v_mode_true","CC0#pi1p;;#Deltacos#theta_{#mu}^{true}",4,0,4,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+        TH2D* hdcos_1p_v_mode_reco = new TH2D("hdcos_1p_v_mode_reco","CC0#pi1p;;#Deltacos#theta_{#mu}^{reco}",4,0,4,dcosdiffnbins,dcosdifflow,dcosdiffhigh);
+
+        //////////////////////////////////////////////////////////
+        // put pointers into vectors for conventient writing to file
+        vector<TH1D*> hists1d = { hddp_diff, hddp_frac, hddcos_diff, hddp_1p_diff, hddp_1p_frac, hddcos_1p_diff,
+                                  henu_diff_true, henu_frac_true, henu_diff_reco, henu_frac_reco, henu_1p_diff_true,
+                                  henu_1p_frac_true, henu_1p_diff_reco, henu_1p_frac_reco, henu_diff_true_neg,
+                                  henu_frac_true_neg, henu_diff_reco_neg, henu_frac_reco_neg, henu_1p_diff_true_neg, 
+                                  henu_1p_frac_true_neg, henu_1p_diff_reco_neg, henu_1p_frac_reco_neg };
+
+        vector<TH2D*> hists2d = {hdp_diff, hdp_frac, hdcos_diff, hdp_1p_diff, hdp_1p_frac, hdcos_1p_diff,
+                                 hphad, hphad_1p, hcoshad, hcoshad_1p, hwhad, hwhad_1p, hwphad_true,
+                                 hwphad_reco, hwphad_1p_true, hwphad_1p_reco, hwcoshad_true, hwcoshad_reco,
+                                 hwcoshad_1p_true, hwcoshad_1p_reco, hdp_v_pmu_true, hdp_v_cosmu_true, hdp_v_phad_true,
+                                 hdp_v_coshad_true, hdp_v_pmu_reco, hdp_v_cosmu_reco, hdp_v_phad_reco, hdp_v_coshad_reco,
+                                 hdp_1p_v_pmu_true, hdp_1p_v_cosmu_true, hdp_1p_v_phad_true, hdp_1p_v_coshad_true,
+                                 hdp_1p_v_pmu_reco, hdp_1p_v_cosmu_reco, hdp_1p_v_phad_reco, hdp_1p_v_coshad_reco,
+                                 hdcos_v_pmu_true, hdcos_v_cosmu_true, hdcos_v_phad_true,
+                                 hdcos_v_coshad_true, hdcos_v_pmu_reco, hdcos_v_cosmu_reco, hdcos_v_phad_reco, hdcos_v_coshad_reco,
+                                 hdcos_1p_v_pmu_true, hdcos_1p_v_cosmu_true, hdcos_1p_v_phad_true, hdcos_1p_v_coshad_true,
+                                 hdcos_1p_v_pmu_reco, hdcos_1p_v_cosmu_reco, hdcos_1p_v_phad_reco, hdcos_1p_v_coshad_reco,
+                                 hdp_v_nu_true, hdp_v_nu_reco, hdp_1p_v_nu_true, hdp_1p_v_nu_reco, hdcos_v_nu_true, 
+                                 hdcos_v_nu_reco, hdcos_1p_v_nu_true, hdcos_1p_v_nu_reco };
 
 	// fill histograms
 	// Np (N>1) first
@@ -1039,6 +1451,84 @@ void kinrecoana::Resolution(){
 	fChain->Draw("mc_p4_had->M():mc_p4_had->CosTheta()>>hwcoshad_1p_true",    "mc_np==1&&np==1" );
 	fChain->Draw("p4_had->M():p4_had->CosTheta()>>hwcoshad_1p_reco",          "mc_np==1&&np==1" );
 
+        // delta distributions as function of muon/had kinematics
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p3_mu->Mag()>>hdp_v_pmu_true",           mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p3_mu->CosTheta()>>hdp_v_cosmu_true",    mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p4_had->P()>>hdp_v_phad_true",           mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p4_had->CosTheta()>>hdp_v_coshad_true",  mucuts_np.c_str() );
+
+        fChain->Draw("kin_reco_pmu_diff:p3_mu->Mag()>>hdp_v_pmu_reco",           mucuts_np.c_str() );
+        fChain->Draw("kin_reco_pmu_diff:p3_mu->CosTheta()>>hdp_v_cosmu_reco",    mucuts_np.c_str() );
+        fChain->Draw("kin_reco_pmu_diff:p4_had->P()>>hdp_v_phad_reco",           mucuts_np.c_str() );
+        fChain->Draw("kin_reco_pmu_diff:p4_had->CosTheta()>>hdp_v_coshad_reco",  mucuts_np.c_str() );
+
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p3_mu->Mag()>>hdp_1p_v_pmu_true",           mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p3_mu->CosTheta()>>hdp_1p_v_cosmu_true",    mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p4_had->P()>>hdp_1p_v_phad_true",           mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_p4_had->CosTheta()>>hdp_1p_v_coshad_true",  mucuts_1p.c_str() );
+
+        fChain->Draw("kin_reco_pmu_diff:p3_mu->Mag()>>hdp_1p_v_pmu_reco",           mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_pmu_diff:p3_mu->CosTheta()>>hdp_1p_v_cosmu_reco",    mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_pmu_diff:p4_had->P()>>hdp_1p_v_phad_reco",           mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_pmu_diff:p4_had->CosTheta()>>hdp_1p_v_coshad_reco",  mucuts_1p.c_str() );
+
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p3_mu->Mag()>>hdcos_v_pmu_true",           mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p3_mu->CosTheta()>>hdcos_v_cosmu_true",    mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p4_had->P()>>hdcos_v_phad_true",           mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p4_had->CosTheta()>>hdcos_v_coshad_true",  mucuts_np.c_str() );
+
+        fChain->Draw("kin_reco_costhetamu_diff:p3_mu->Mag()>>hdcos_v_pmu_reco",           mucuts_np.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:p3_mu->CosTheta()>>hdcos_v_cosmu_reco",    mucuts_np.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:p4_had->P()>>hdcos_v_phad_reco",           mucuts_np.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:p4_had->CosTheta()>>hdcos_v_coshad_reco",  mucuts_np.c_str() );
+
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p3_mu->Mag()>>hdcos_1p_v_pmu_true",           mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p3_mu->CosTheta()>>hdcos_1p_v_cosmu_true",    mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p4_had->P()>>hdcos_1p_v_phad_true",           mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_p4_had->CosTheta()>>hdcos_1p_v_coshad_true",  mucuts_1p.c_str() );
+
+        fChain->Draw("kin_reco_costhetamu_diff:p3_mu->Mag()>>hdcos_1p_v_pmu_reco",           mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:p3_mu->CosTheta()>>hdcos_1p_v_cosmu_reco",    mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:p4_had->P()>>hdcos_1p_v_phad_reco",           mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:p4_had->CosTheta()>>hdcos_1p_v_coshad_reco",  mucuts_1p.c_str() );
+
+        fChain->Draw("kin_reco_pmu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdp_v_nu_reco",             mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdp_v_nu_true",          mucuts_np.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdcos_v_nu_reco",    mucuts_np.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdcos_v_nu_true", mucuts_np.c_str() );
+
+        fChain->Draw("kin_reco_pmu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdp_1p_v_nu_reco",             mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdp_1p_v_nu_true",          mucuts_1p.c_str() );
+        fChain->Draw("kin_reco_costhetamu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdcos_1p_v_nu_reco",    mucuts_1p.c_str() );
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_nu_energy-sqrt(mc_p3_mu->Mag()**2+0.10567**2)>>hdcos_1p_v_nu_true", mucuts_1p.c_str() );
+
+        // fill delta vs. interaction mode
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_interaction>>hdp_v_mode_tmp",            mucuts_np.c_str() );
+        Fill2DModeHist(hdp_v_mode_tmp,hdp_v_mode_true);
+
+
+        fChain->Draw("kin_reco_pmu_diff:mc_interaction>>hdp_v_mode_tmp",            mucuts_np.c_str() );
+        Fill2DModeHist(hdp_v_mode_tmp,hdp_v_mode_reco);
+
+        fChain->Draw("mc_kin_reco_pmu_diff:mc_interaction>>hdp_v_mode_tmp",            mucuts_1p.c_str() );
+        Fill2DModeHist(hdp_v_mode_tmp,hdp_1p_v_mode_true);
+
+        fChain->Draw("kin_reco_pmu_diff:mc_interaction>>hdp_v_mode_tmp",            mucuts_1p.c_str() );
+        Fill2DModeHist(hdp_v_mode_tmp,hdp_1p_v_mode_reco);
+        delete hdp_v_mode_tmp;
+
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_interaction>>hdcos_v_mode_tmp",            mucuts_np.c_str() );
+        Fill2DModeHist(hdcos_v_mode_tmp,hdcos_v_mode_true);
+
+        fChain->Draw("kin_reco_costhetamu_diff:mc_interaction>>hdcos_v_mode_tmp",            mucuts_np.c_str() );
+        Fill2DModeHist(hdcos_v_mode_tmp,hdcos_v_mode_reco);
+
+        fChain->Draw("mc_kin_reco_costhetamu_diff:mc_interaction>>hdcos_v_mode_tmp",            mucuts_1p.c_str() );
+        Fill2DModeHist(hdcos_v_mode_tmp,hdcos_1p_v_mode_true);
+
+        fChain->Draw("kin_reco_costhetamu_diff:mc_interaction>>hdcos_v_mode_tmp",            mucuts_1p.c_str() );
+        Fill2DModeHist(hdcos_v_mode_tmp,hdcos_1p_v_mode_reco);
+        delete hdcos_v_mode_tmp;
 
 	// extract 1D histos from 2D ones and make x-axis label truth-reco agnostic
 	TH1D* hdp_diff_true   = (TH1D*)hdp_diff->ProjectionX("hdp_diff_true",  0, -1, "e"); 
@@ -1159,218 +1649,397 @@ void kinrecoana::Resolution(){
 	SetResolutionStyle(henu_diff_reco); henu_diff_reco->SetLineColor(color_np_reco);
 	SetResolutionStyle(henu_frac_reco); henu_frac_reco->SetLineColor(color_np_reco);
 
-  SetResolutionStyle(henu_1p_diff_true); henu_1p_diff_true->SetLineColor(color_1p_true);
-  SetResolutionStyle(henu_1p_frac_true); henu_1p_frac_true->SetLineColor(color_1p_true);
-  SetResolutionStyle(henu_1p_diff_reco); henu_1p_diff_reco->SetLineColor(color_1p_reco);
-  SetResolutionStyle(henu_1p_frac_reco); henu_1p_frac_reco->SetLineColor(color_1p_reco);
+	SetResolutionStyle(henu_1p_diff_true); henu_1p_diff_true->SetLineColor(color_1p_true);
+	SetResolutionStyle(henu_1p_frac_true); henu_1p_frac_true->SetLineColor(color_1p_true);
+	SetResolutionStyle(henu_1p_diff_reco); henu_1p_diff_reco->SetLineColor(color_1p_reco);
+	SetResolutionStyle(henu_1p_frac_reco); henu_1p_frac_reco->SetLineColor(color_1p_reco);
+	
+	henu_1p_diff_true->GetXaxis()->SetTitle("E_{#nu}^{kin}-E_{#nu}^{true} [GeV]");
+	henu_1p_frac_true->GetXaxis()->SetTitle("(E_{#nu}^{kin}-E_{#nu}^{true})/E_{#nu}^{true}");
+	
+	SetResolutionStyle(hphad_diff  );  hphad_diff  ->SetLineColor(color_np_reco);
+	SetResolutionStyle(hcoshad_diff);  hcoshad_diff->SetLineColor(color_np_reco);
+	SetResolutionStyle(hwhad_diff  );  hwhad_diff  ->SetLineColor(color_np_reco);
+	
+	SetResolutionStyle(hphad_1p_diff  ); hphad_1p_diff  ->SetLineColor(color_1p_reco);
+	SetResolutionStyle(hcoshad_1p_diff); hcoshad_1p_diff->SetLineColor(color_1p_reco);
+	SetResolutionStyle(hwhad_1p_diff  ); hwhad_1p_diff  ->SetLineColor(color_1p_reco);
+	
+	SetResolutionStyle(hphad_true  );  hphad_true  ->SetLineColor(color_np_true);   
+	SetResolutionStyle(hphad_reco  );  hphad_reco  ->SetLineColor(color_np_reco);   
+	SetResolutionStyle(hcoshad_true);  hcoshad_true->SetLineColor(color_np_true);     
+	SetResolutionStyle(hcoshad_reco);  hcoshad_reco->SetLineColor(color_np_reco);    
+	SetResolutionStyle(hwhad_true  );  hwhad_true  ->SetLineColor(color_np_true);    
+	SetResolutionStyle(hwhad_reco  );  hwhad_reco  ->SetLineColor(color_np_reco);   
+	
+	SetResolutionStyle(hphad_1p_true  );  hphad_1p_true  ->SetLineColor(color_1p_true);
+	SetResolutionStyle(hphad_1p_reco  );  hphad_1p_reco  ->SetLineColor(color_1p_reco);
+	SetResolutionStyle(hcoshad_1p_true);  hcoshad_1p_true->SetLineColor(color_1p_true);
+	SetResolutionStyle(hcoshad_1p_reco);  hcoshad_1p_reco->SetLineColor(color_1p_reco);
+	SetResolutionStyle(hwhad_1p_true  );  hwhad_1p_true  ->SetLineColor(color_1p_true);
+	SetResolutionStyle(hwhad_1p_reco  );  hwhad_1p_reco  ->SetLineColor(color_1p_reco);
+	
+	gStyle->SetOptStat(0);
+	
+	// draw
+	auto cdmu2d = new TCanvas("cdmu2d","",1800,1000);
+	cdmu2d->Divide(3,2);
+	cdmu2d->cd(1);
+	hdp_diff->Draw("colz");
+	cdmu2d->cd(2);
+	hdp_frac->Draw("colz");
+	cdmu2d->cd(3);
+	hdcos_diff->Draw("colz");
+	
+	cdmu2d->cd(4);
+	hdp_1p_diff->Draw("colz");
+	cdmu2d->cd(5);
+	hdp_1p_frac->Draw("colz");
+	cdmu2d->cd(6);
+	hdcos_1p_diff->Draw("colz");
+	cdmu2d->SaveAs("deltas2d.png");
+	
+	auto cdmu = new TCanvas("cdmu","",1800,600);
+	cdmu->Divide(3,1);
+	cdmu->cd(1);
+        hdp_1p_diff_true->SetTitle("");
+	hdp_1p_diff_true->Draw("ehist");
+	hdp_1p_diff_reco->Draw("ehistsame");
+	hdp_diff_true->Draw("ehistsame");
+	hdp_diff_reco->Draw("ehistsame");
+	
+	TLegend* legmu = new TLegend(0.6,0.4,0.9,0.9);
+	legmu->SetBorderSize(0);
+	legmu->AddEntry("hdp_diff_true","Np w/truth input","l");
+	legmu->AddEntry("hdp_diff_reco","Np w/reco input","l");
+	legmu->AddEntry("hdp_1p_diff_true","1p w/truth input","l");
+	legmu->AddEntry("hdp_1p_diff_reco","1p w/reco input","l");
+	
+	cdmu->cd(2);
+        hdp_1p_frac_true->SetTitle("");
+	hdp_1p_frac_true->Draw("ehist");
+	hdp_1p_frac_reco->Draw("ehistsame");
+	hdp_frac_true->Draw("ehistsame");
+	hdp_frac_reco->Draw("ehistsame");
+	
+	cdmu->cd(3);
+        hdcos_1p_diff_true->SetTitle("");
+	hdcos_1p_diff_true->Draw("ehist");
+	hdcos_1p_diff_reco->Draw("ehistsame");
+	hdcos_diff_true->Draw("ehistsame");
+	hdcos_diff_reco->Draw("ehistsame");
+	legmu->Draw();
+	
+	cdmu->SaveAs("deltas.png");
+	
+	auto cddmu = new TCanvas("cddmu","",1800,600);
+	cddmu->Divide(3,1);
+	cddmu->cd(1);
+	hddp_1p_diff->Draw("e0hist");
+	hddp_1p_diff->GetXaxis()->SetRangeUser(-2,2);
+	hddp_diff->Draw("e0histsame");
+	cddmu->cd(2);
+	hddp_1p_frac->Draw("e0hist");
+	hddp_frac->Draw("e0histsame");
+	cddmu->cd(3);
+	hddcos_1p_diff->Draw("e0hist");
+	hddcos_diff->Draw("e0histsame");
+	cddmu->SaveAs("deltadeltas.png");
+	
+	auto cnu = new TCanvas("cnu","",1200,600);
+	cnu->Divide(2,1);
+	cnu->cd(1);
+	henu_1p_diff_true->Draw("e0hist");
+	henu_1p_diff_reco->Draw("e0histsame");
+	henu_1p_diff_true_neg->Draw("e0histsame");
+	henu_1p_diff_reco_neg->Draw("e0histsame");
+	
+	henu_diff_true->Draw("e0histsame");
+	henu_diff_reco->Draw("e0histsame");
+	henu_diff_true_neg->Draw("e0histsame");
+	henu_diff_reco_neg->Draw("e0histsame");
+	
+	TLegend* legnu = new TLegend(0.35,0.5,0.88,0.88);
+	legnu->SetBorderSize(0);
+	legnu->AddEntry("henu_diff_true",     "Np w/truth inputs", "l");
+	legnu->AddEntry("henu_diff_reco",     "Np w/reco inputs", "l");
+	legnu->AddEntry("henu_diff_true_neg", "Np w/truth inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
+	legnu->AddEntry("henu_diff_reco_neg", "Np w/reco inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
+	legnu->AddEntry("henu_1p_diff_true",     "1p w/truth inputs", "l");
+	legnu->AddEntry("henu_1p_diff_reco",     "1p w/reco inputs", "l");
+	legnu->AddEntry("henu_1p_diff_true_neg", "1p w/truth inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
+	legnu->AddEntry("henu_1p_diff_reco_neg", "1p w/reco inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
+	
+	cnu->cd(2);
+	henu_1p_frac_true->Draw("e0hist");
+	henu_1p_frac_reco->Draw("e0histsame");
+	henu_1p_frac_true_neg->Draw("e0histsame");
+	henu_1p_frac_reco_neg->Draw("e0histsame");
+	henu_frac_true->Draw("e0histsame");
+	henu_frac_reco->Draw("e0histsame");
+	henu_frac_true_neg->Draw("e0histsame");
+	henu_frac_reco_neg->Draw("e0histsame");
+	legnu->Draw();
+	
+	cnu->SaveAs("enu_eres.png");
+	
+	TCanvas* cphad = new TCanvas("cphad","",1800,600);
+	cphad->Divide(4,1);
+	cphad->cd(1);
+	hphad->Draw("colz");
+	cphad->cd(2);
+	hphad_1p->Draw("colz");
+        hphad_1p->GetXaxis()->SetRangeUser(0.18,1.4);
+        hphad_1p->GetYaxis()->SetRangeUser(0.18,1.4);
+	cphad->cd(3);
+	hphad_1p_true->Draw("ehist");
+	hphad_1p_reco->Draw("ehistsame");
+	hphad_true->Draw("ehistsame");
+	hphad_reco->Draw("ehistsame");
+	legmu->Draw();
+	cphad->cd(4);
+        hphad_1p_diff->GetXaxis()->SetRangeUser(-0.9,0.9);
+	hphad_1p_diff->Draw("ehist");
+	hphad_diff->Draw("ehistsame");
+	//gPad->SetLogy();
+	cphad->SaveAs("had_mom.png");
+	
+	TCanvas* ccoshad = new TCanvas("ccoshad","",1800,600);
+	ccoshad->Divide(4,1);
+	ccoshad->cd(1);
+	hcoshad->Draw("colz");
+	ccoshad->cd(2);
+	hcoshad_1p->Draw("colz");
+	ccoshad->cd(3);
+        hcoshad_1p_true->SetTitle("");
+        hcoshad_1p_true->GetYaxis()->SetRangeUser(0,0.05);
+	hcoshad_1p_true->Draw("ehist");
+	hcoshad_1p_reco->Draw("ehistsame");
+	hcoshad_true->Draw("ehistsame");
+	hcoshad_reco->Draw("ehistsame");
+	
+	TLegend* legmuclone = (TLegend*)legmu->Clone();
+	legmuclone->SetX1NDC(0.15);
+	legmuclone->SetX2NDC(0.45);
+	legmuclone->Draw();
+	
+	ccoshad->cd(4);
+	hcoshad_1p_diff->Draw("ehist");
+	hcoshad_diff->Draw("ehistsame");
+	ccoshad->SaveAs("had_cos.png");
+	
+	TCanvas* cwhad = new TCanvas("cwhad","",1800,600);
+	cwhad->Divide(4,1);
+	cwhad->cd(1);
+	hwhad->Draw("colz");
+	cwhad->cd(2);
+	hwhad_1p->Draw("colz");
+        hwhad_1p->GetXaxis()->SetRangeUser(0.87,0.97);
+        hwhad_1p->GetYaxis()->SetRangeUser(0.87,0.97);
+        cwhad->Modified();
+	cwhad->cd(3);
+	hwhad_reco->Draw("ehist");
+        hwhad_reco->GetXaxis()->SetRangeUser(0.9,1.8);
+	hwhad_true->Draw("ehistsame");
+	//hwhad_1p_true->Draw("ehistsame");
+	//hwhad_1p_reco->Draw("ehistsame");
+	legmu->Draw();
+	cwhad->cd(4);
+	hwhad_diff->Draw("ehist");
+	hwhad_1p_diff->Draw("ehistsame");
+	cwhad->SaveAs("had_w.png");
+	
+	TCanvas* cwvshad = new TCanvas("cwvshad","",1400,1200);
+	cwvshad->Divide(2,2);
+	cwvshad->cd(1);
+	hwphad_true->Draw("colz");
+	cwvshad->cd(2);
+	hwphad_reco->Draw("colz");
+        //hwphad_reco->GetYaxis()->SetRangeUser(0.9,1.2);
+	cwvshad->cd(3);
+	hwcoshad_true->Draw("colz");
+	cwvshad->cd(4);
+	hwcoshad_reco->Draw("colz");
+        //hwcoshad_reco->GetYaxis()->SetRangeUser(0.9,1.2);
+	cwvshad->SaveAs("had_w_vs.png");
+	
+	TCanvas* cwvshad_1p = new TCanvas("cwvshad_1p","",1400,1200);
+	cwvshad_1p->Divide(2,2);
+	cwvshad_1p->cd(1);
+	hwphad_1p_true->Draw("colz");
+        hwphad_1p_true->GetYaxis()->SetRangeUser(0.9,1);
+	cwvshad_1p->cd(2);
+	hwphad_1p_reco->Draw("colz");
+        hwphad_1p_reco->GetYaxis()->SetRangeUser(0.9,1);
+	cwvshad_1p->cd(3);
+	hwcoshad_1p_true->Draw("colz");
+        hwcoshad_1p_true->GetYaxis()->SetRangeUser(0.9,1);
+	cwvshad_1p->cd(4);
+	hwcoshad_1p_reco->Draw("colz");
+        hwcoshad_1p_reco->GetYaxis()->SetRangeUser(0.9,1);
+	cwvshad_1p->SaveAs("had_w_vs_1p.png");
 
-  henu_1p_diff_true->GetXaxis()->SetTitle("E_{#nu}^{kin}-E_{#nu}^{true} [GeV]");
-  henu_1p_frac_true->GetXaxis()->SetTitle("(E_{#nu}^{kin}-E_{#nu}^{true})/E_{#nu}^{true}");
+        auto cdpv_true_np = new TCanvas("cdpv_true_np","",1400,1200);
+        cdpv_true_np->Divide(2,2);
+        cdpv_true_np->Modified();
+        cdpv_true_np->cd(1);
+        hdp_v_pmu_true->Draw("colz");
+        cdpv_true_np->cd(2);
+        hdp_v_cosmu_true->Draw("colz");
+        cdpv_true_np->cd(3);
+        hdp_v_phad_true->Draw("colz");
+        cdpv_true_np->cd(4);
+        hdp_v_coshad_true->Draw("colz");
+        cdpv_true_np->SaveAs("hdp_v_muhadkin_true_np.png");
+      
+        auto cdpv_reco_np = new TCanvas("cdpv_reco_np","",1400,1200);
+        cdpv_reco_np->Divide(2,2);
+        cdpv_reco_np->Modified();
+        cdpv_reco_np->cd(1);
+        hdp_v_pmu_reco->Draw("colz");
+        cdpv_reco_np->cd(2);
+        hdp_v_cosmu_reco->Draw("colz");
+        cdpv_reco_np->cd(3);
+        hdp_v_phad_reco->Draw("colz");
+        cdpv_reco_np->cd(4);
+        hdp_v_coshad_reco->Draw("colz");
+        cdpv_reco_np->SaveAs("hdp_v_muhadkin_reco_np.png");
 
-  SetResolutionStyle(hphad_diff  );  hphad_diff  ->SetLineColor(color_np_reco);
-  SetResolutionStyle(hcoshad_diff);  hcoshad_diff->SetLineColor(color_np_reco);
-  SetResolutionStyle(hwhad_diff  );  hwhad_diff  ->SetLineColor(color_np_reco);
+        auto cdpv_true_1p = new TCanvas("cdpv_true_1p","",1400,1200);
+        cdpv_true_1p->Divide(2,2);
+        cdpv_true_1p->Modified();
+        cdpv_true_1p->cd(1);
+        hdp_1p_v_pmu_true->Draw("colz");
+        cdpv_true_1p->cd(2);
+        hdp_1p_v_cosmu_true->Draw("colz");
+        cdpv_true_1p->cd(3);
+        hdp_1p_v_phad_true->Draw("colz");
+        cdpv_true_1p->cd(4);
+        hdp_1p_v_coshad_true->Draw("colz");
+        cdpv_true_1p->SaveAs("hdp_v_muhadkin_true_1p.png");
+      
+        auto cdpv_reco_1p = new TCanvas("cdpv_reco_1p","",1400,1200);
+        cdpv_reco_1p->Divide(2,2);
+        cdpv_reco_1p->Modified();
+        cdpv_reco_1p->cd(1);
+        hdp_1p_v_pmu_reco->Draw("colz");
+        cdpv_reco_1p->cd(2);
+        hdp_1p_v_cosmu_reco->Draw("colz");
+        cdpv_reco_1p->cd(3);
+        hdp_1p_v_phad_reco->Draw("colz");
+        cdpv_reco_1p->cd(4);
+        hdp_1p_v_coshad_reco->Draw("colz");
+        cdpv_reco_1p->SaveAs("hdp_v_muhadkin_reco_1p.png");
 
-  SetResolutionStyle(hphad_1p_diff  ); hphad_1p_diff  ->SetLineColor(color_1p_reco);
-  SetResolutionStyle(hcoshad_1p_diff); hcoshad_1p_diff->SetLineColor(color_1p_reco);
-  SetResolutionStyle(hwhad_1p_diff  ); hwhad_1p_diff  ->SetLineColor(color_1p_reco);
+        auto cdcosv_true_np = new TCanvas("cdcosv_true_np","",1400,1200);
+        cdcosv_true_np->Divide(2,2);
+        cdcosv_true_np->Modified();
+        cdcosv_true_np->cd(1);
+        hdcos_v_pmu_true->Draw("colz");
+        cdcosv_true_np->cd(2);
+        hdcos_v_cosmu_true->Draw("colz");
+        cdcosv_true_np->cd(3);
+        hdcos_v_phad_true->Draw("colz");
+        cdcosv_true_np->cd(4);
+        hdcos_v_coshad_true->Draw("colz");
+        cdcosv_true_np->SaveAs("hdcos_v_muhadkin_true_np.png");
 
-  SetResolutionStyle(hphad_true  );  hphad_true  ->SetLineColor(color_np_true);   
-  SetResolutionStyle(hphad_reco  );  hphad_reco  ->SetLineColor(color_np_reco);   
-  SetResolutionStyle(hcoshad_true);  hcoshad_true->SetLineColor(color_np_true);     
-  SetResolutionStyle(hcoshad_reco);  hcoshad_reco->SetLineColor(color_np_reco);    
-  SetResolutionStyle(hwhad_true  );  hwhad_true  ->SetLineColor(color_np_true);    
-  SetResolutionStyle(hwhad_reco  );  hwhad_reco  ->SetLineColor(color_np_reco);   
+        auto cdcosv_reco_np = new TCanvas("cdcosv_reco_np","",1400,1200);
+        cdcosv_reco_np->Divide(2,2);
+        cdcosv_reco_np->Modified();
+        cdcosv_reco_np->cd(1);
+        hdcos_v_pmu_reco->Draw("colz");
+        cdcosv_reco_np->cd(2);
+        hdcos_v_cosmu_reco->Draw("colz");
+        cdcosv_reco_np->cd(3);
+        hdcos_v_phad_reco->Draw("colz");
+        cdcosv_reco_np->cd(4);
+        hdcos_v_coshad_reco->Draw("colz");
+        cdcosv_reco_np->SaveAs("hdcos_v_muhadkin_reco_np.png");
 
-  SetResolutionStyle(hphad_1p_true  );  hphad_1p_true  ->SetLineColor(color_1p_true);
-  SetResolutionStyle(hphad_1p_reco  );  hphad_1p_reco  ->SetLineColor(color_1p_reco);
-  SetResolutionStyle(hcoshad_1p_true);  hcoshad_1p_true->SetLineColor(color_1p_true);
-  SetResolutionStyle(hcoshad_1p_reco);  hcoshad_1p_reco->SetLineColor(color_1p_reco);
-  SetResolutionStyle(hwhad_1p_true  );  hwhad_1p_true  ->SetLineColor(color_1p_true);
-  SetResolutionStyle(hwhad_1p_reco  );  hwhad_1p_reco  ->SetLineColor(color_1p_reco);
+        auto cdcosv_true_1p = new TCanvas("cdcosv_true_1p","",1400,1200);
+        cdcosv_true_1p->Divide(2,2);
+        cdcosv_true_1p->Modified();
+        cdcosv_true_1p->cd(1);
+        hdcos_1p_v_pmu_true->Draw("colz");
+        cdcosv_true_1p->cd(2);
+        hdcos_1p_v_cosmu_true->Draw("colz");
+        cdcosv_true_1p->cd(3);
+        hdcos_1p_v_phad_true->Draw("colz");
+        cdcosv_true_1p->cd(4);
+        hdcos_1p_v_coshad_true->Draw("colz");
+        cdcosv_true_1p->SaveAs("hdcos_v_muhadkin_true_1p.png");
 
-  gStyle->SetOptStat(0);
+        auto cdcosv_reco_1p = new TCanvas("cdcosv_reco_1p","",1400,1200);
+        cdcosv_reco_1p->Divide(2,2);
+        cdcosv_reco_1p->Modified();
+        cdcosv_reco_1p->cd(1);
+        hdcos_1p_v_pmu_reco->Draw("colz");
+        cdcosv_reco_1p->cd(2);
+        hdcos_1p_v_cosmu_reco->Draw("colz");
+        cdcosv_reco_1p->cd(3);
+        hdcos_1p_v_phad_reco->Draw("colz");
+        cdcosv_reco_1p->cd(4);
+        hdcos_1p_v_coshad_reco->Draw("colz");
+        cdcosv_reco_1p->SaveAs("hdcos_v_muhadkin_reco_1p.png");
 
-  // draw
-  auto cdmu2d = new TCanvas("cdmu2d","",1800,1000);
-  cdmu2d->Divide(3,2);
-  cdmu2d->cd(1);
-  hdp_diff->Draw("colz");
-  cdmu2d->cd(2);
-  hdp_frac->Draw("colz");
-  cdmu2d->cd(3);
-  hdcos_diff->Draw("colz");
+        auto cdpvnu = new TCanvas("cdpvnu","",1400,1200);
+        cdpvnu->Divide(2,2);
+        cdpvnu->Modified();
+        cdpvnu->cd(1);
+        hdp_1p_v_nu_true->Draw("colz");
+        cdpvnu->cd(2);
+        hdp_1p_v_nu_reco->Draw("colz");
+        cdpvnu->cd(3);
+        hdp_v_nu_true->Draw("colz");
+        cdpvnu->cd(4);
+        hdp_v_nu_reco->Draw("colz");
+        cdpvnu->SaveAs("hdp_v_nu.png");
+	
+        auto cdcosvnu = new TCanvas("cdcosvnu","",1400,1200);
+        cdcosvnu->Divide(2,2);
+        cdcosvnu->Modified();
+        cdcosvnu->cd(1);
+        hdcos_1p_v_nu_true->Draw("colz");
+        cdcosvnu->cd(2);
+        hdcos_1p_v_nu_reco->Draw("colz");
+        cdcosvnu->cd(3);
+        hdcos_v_nu_true->Draw("colz");
+        cdcosvnu->cd(4);
+        hdcos_v_nu_reco->Draw("colz");
+        cdcosvnu->SaveAs("hdcos_v_nu.png");
 
-  cdmu2d->cd(4);
-  hdp_1p_diff->Draw("colz");
-  cdmu2d->cd(5);
-  hdp_1p_frac->Draw("colz");
-  cdmu2d->cd(6);
-  hdcos_1p_diff->Draw("colz");
-  cdmu2d->SaveAs("deltas2d.png");
+        auto cdpvmode = new TCanvas("cdpvmode","",1400,1200);
+        cdpvmode->Divide(2,2);
+        cdpvmode->Modified();
+        cdpvmode->cd(1);
+        hdp_1p_v_mode_true->Draw("colz");
+        cdpvmode->cd(2);
+        hdp_1p_v_mode_reco->Draw("colz");
+        cdpvmode->cd(3);
+        hdp_v_mode_true->Draw("colz");
+        cdpvmode->cd(4);
+        hdp_v_mode_reco->Draw("colz");
+        cdpvmode->SaveAs("hdp_v_mode.png");
 
-  auto cdmu = new TCanvas("cdmu","",1800,600);
-  cdmu->Divide(3,1);
-  cdmu->cd(1);
-  hdp_1p_diff_true->Draw("ehist");
-  hdp_1p_diff_reco->Draw("ehistsame");
-  hdp_diff_true->Draw("ehistsame");
-  hdp_diff_reco->Draw("ehistsame");
+        auto cdcosvmode = new TCanvas("cdcosvmode","",1400,1200);
+        cdcosvmode->Divide(2,2);
+        cdcosvmode->Modified();
+        cdcosvmode->cd(1);
+        hdcos_1p_v_mode_true->Draw("colz");
+        cdcosvmode->cd(2);
+        hdcos_1p_v_mode_reco->Draw("colz");
+        cdcosvmode->cd(3);
+        hdcos_v_mode_true->Draw("colz");
+        cdcosvmode->cd(4);
+        hdcos_v_mode_reco->Draw("colz");
+        cdcosvmode->SaveAs("hdcos_v_mode.png");
 
-  TLegend* legmu = new TLegend(0.6,0.4,0.9,0.9);
-  legmu->SetBorderSize(0);
-  legmu->AddEntry("hdp_diff_true","Np w/truth input","l");
-  legmu->AddEntry("hdp_diff_reco","Np w/reco input","l");
-  legmu->AddEntry("hdp_1p_diff_true","1p w/truth input","l");
-  legmu->AddEntry("hdp_1p_diff_reco","1p w/reco input","l");
-
-  cdmu->cd(2);
-  hdp_1p_frac_true->Draw("ehist");
-  hdp_1p_frac_reco->Draw("ehistsame");
-  hdp_frac_true->Draw("ehistsame");
-  hdp_frac_reco->Draw("ehistsame");
-
-  cdmu->cd(3);
-  hdcos_1p_diff_true->Draw("ehist");
-  hdcos_1p_diff_reco->Draw("ehistsame");
-  hdcos_diff_true->Draw("ehistsame");
-  hdcos_diff_reco->Draw("ehistsame");
-  legmu->Draw();
-
-  cdmu->SaveAs("deltas.png");
-
-  auto cddmu = new TCanvas("cddmu","",1800,600);
-  cddmu->Divide(3,1);
-  cddmu->cd(1);
-  hddp_1p_diff->Draw("e0hist");
-  hddp_1p_diff->GetXaxis()->SetRangeUser(-2,2);
-  hddp_diff->Draw("e0histsame");
-  cddmu->cd(2);
-  hddp_1p_frac->Draw("e0hist");
-  hddp_frac->Draw("e0histsame");
-  cddmu->cd(3);
-  hddcos_1p_diff->Draw("e0hist");
-  hddcos_diff->Draw("e0histsame");
-  cddmu->SaveAs("deltadeltas.png");
-
-  auto cnu = new TCanvas("cnu","",1200,600);
-  cnu->Divide(2,1);
-  cnu->cd(1);
-  henu_1p_diff_true->Draw("e0hist");
-  henu_1p_diff_reco->Draw("e0histsame");
-  henu_1p_diff_true_neg->Draw("e0histsame");
-  henu_1p_diff_reco_neg->Draw("e0histsame");
-
-  henu_diff_true->Draw("e0histsame");
-  henu_diff_reco->Draw("e0histsame");
-  henu_diff_true_neg->Draw("e0histsame");
-  henu_diff_reco_neg->Draw("e0histsame");
-
-  TLegend* legnu = new TLegend(0.35,0.5,0.88,0.88);
-  legnu->SetBorderSize(0);
-  legnu->AddEntry("henu_diff_true",     "Np w/truth inputs", "l");
-  legnu->AddEntry("henu_diff_reco",     "Np w/reco inputs", "l");
-  legnu->AddEntry("henu_diff_true_neg", "Np w/truth inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
-  legnu->AddEntry("henu_diff_reco_neg", "Np w/reco inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
-  legnu->AddEntry("henu_1p_diff_true",     "1p w/truth inputs", "l");
-  legnu->AddEntry("henu_1p_diff_reco",     "1p w/reco inputs", "l");
-  legnu->AddEntry("henu_1p_diff_true_neg", "1p w/truth inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
-  legnu->AddEntry("henu_1p_diff_reco_neg", "1p w/reco inputs, E_{#nu}^{kin}<0 and E_{#nu}^{kin}#rightarrow-E_{#nu}^{kin}", "l");
-
-  cnu->cd(2);
-  henu_1p_frac_true->Draw("e0hist");
-  henu_1p_frac_reco->Draw("e0histsame");
-  henu_1p_frac_true_neg->Draw("e0histsame");
-  henu_1p_frac_reco_neg->Draw("e0histsame");
-  henu_frac_true->Draw("e0histsame");
-  henu_frac_reco->Draw("e0histsame");
-  henu_frac_true_neg->Draw("e0histsame");
-  henu_frac_reco_neg->Draw("e0histsame");
-  legnu->Draw();
-
-  cnu->SaveAs("enu_eres.png");
-
-  TCanvas* cphad = new TCanvas("cphad","",1800,600);
-  cphad->Divide(4,1);
-  cphad->cd(1);
-  hphad->Draw("colz");
-  cphad->cd(2);
-  hphad_1p->Draw("colz");
-  cphad->cd(3);
-  hphad_1p_true->Draw("ehist");
-  hphad_1p_reco->Draw("ehistsame");
-  hphad_true->Draw("ehistsame");
-  hphad_reco->Draw("ehistsame");
-  legmu->Draw();
-  cphad->cd(4);
-  hphad_1p_diff->Draw("ehist");
-  hphad_diff->Draw("ehistsame");
-  gPad->SetLogy();
-  cphad->SaveAs("had_mom.png");
-
-  TCanvas* ccoshad = new TCanvas("ccoshad","",1800,600);
-  ccoshad->Divide(4,1);
-  ccoshad->cd(1);
-  hcoshad->Draw("colz");
-  ccoshad->cd(2);
-  hcoshad_1p->Draw("colz");
-  ccoshad->cd(3);
-  hcoshad_1p_true->Draw("ehist");
-  hcoshad_1p_reco->Draw("ehistsame");
-  hcoshad_true->Draw("ehistsame");
-  hcoshad_reco->Draw("ehistsame");
-
-  TLegend* legmuclone = (TLegend*)legmu->Clone();
-  legmuclone->SetX1NDC(0.15);
-  legmuclone->SetX2NDC(0.45);
-  legmuclone->Draw();
-
-  ccoshad->cd(4);
-  hcoshad_1p_diff->Draw("ehist");
-  hcoshad_diff->Draw("ehistsame");
-  ccoshad->SaveAs("had_cos.png");
-
-  TCanvas* cwhad = new TCanvas("cwhad","",1800,600);
-  cwhad->Divide(4,1);
-  cwhad->cd(1);
-  hwhad->Draw("colz");
-  cwhad->cd(2);
-  hwhad_1p->Draw("colz");
-  cwhad->cd(3);
-  hwhad_1p_true->Draw("ehist");
-  hwhad_1p_reco->Draw("ehistsame");
-  hwhad_true->Draw("ehistsame");
-  hwhad_reco->Draw("ehistsame");
-  legmu->Draw();
-  cwhad->cd(4);
-  hwhad_1p_diff->Draw("ehist");
-  hwhad_diff->Draw("ehistsame");
-  cwhad->SaveAs("had_w.png");
-
-  TCanvas* cwvshad = new TCanvas("cwvshad","",1400,1200);
-  cwvshad->Divide(2,2);
-  cwvshad->cd(1);
-  hwphad_true->Draw("colz");
-  cwvshad->cd(2);
-  hwphad_reco->Draw("colz");
-  cwvshad->cd(3);
-  hwcoshad_true->Draw("colz");
-  cwvshad->cd(4);
-  hwcoshad_reco->Draw("colz");
-  cwvshad->SaveAs("had_w_vs.png");
-
-  TCanvas* cwvshad_1p = new TCanvas("cwvshad_1p","",1400,1200);
-  cwvshad_1p->Divide(2,2);
-  cwvshad_1p->cd(1);
-  hwphad_1p_true->Draw("colz");
-  cwvshad_1p->cd(2);
-  hwphad_1p_reco->Draw("colz");
-  cwvshad_1p->cd(3);
-  hwcoshad_1p_true->Draw("colz");
-  cwvshad_1p->cd(4);
-  hwcoshad_1p_reco->Draw("colz");
-  cwvshad_1p->SaveAs("had_w_vs_1p.png");
-
+	// write histograms to file for later editing
+	TFile *fout = new TFile("resolution_histos.root","RECREATE");
+	for(auto const& h : hists1d) h->Write();
+	for(auto const& h : hists2d) h->Write();
+	fout->Close();
 }
 
 void kinrecoana::ProtonMult() {
@@ -1415,4 +2084,182 @@ void kinrecoana::ProtonMult() {
   leg->Draw();
 
   c1->SaveAs("proton_mult_1d_ntrue_nreco.png");
+
+}
+
+void kinrecoana::Plot2p() {
+
+  this->SetList(false,"mc_is_signal&&mc_np==2&&np==2");  
+  TEntryList *elist = (TEntryList*)gDirectory->Get("elist");
+
+  TH2D *hanglephad = new TH2D("hanglephad","CC0#pi2p reco;cos#gamma;p_{had}",25,-1,1,25,0,2.2);
+  TH2D *hanglephadmc = new TH2D("hanglephadmc","CC0#pi2p true;cos#gamma;p_{had}",25,-1,1,25,0,2.2);
+
+  for(int i=0; i<elist->GetN(); i++){
+
+    int entryNumber = fChain->GetEntryNumber(i);
+    if (entryNumber < 0) break;
+       fChain->GetEntry(entryNumber);
+
+    hanglephad->Fill(p3_p_vec->at(0).Dot(p3_p_vec->at(1))/(p3_p_vec->at(0).Mag()*p3_p_vec->at(1).Mag()),p4_had->P());
+    hanglephadmc->Fill(mc_p3_p_vec->at(0).Dot(mc_p3_p_vec->at(1))/(mc_p3_p_vec->at(0).Mag()*mc_p3_p_vec->at(1).Mag()),mc_p4_had->P()); 
+  }
+
+  TH1D *hangle = hanglephad->ProjectionX("hangle");
+  hangle->SetLineWidth(2);
+
+  TH1D *hanglemc = hanglephadmc->ProjectionX("hanglemc");
+  hanglemc->SetLineWidth(2);
+  hanglemc->SetLineColor(kGreen-2);
+
+  auto c1 = new TCanvas();
+  hanglephad->Draw("colz");
+
+  auto c2 = new TCanvas();
+  hanglephadmc->Draw("colz");
+
+  auto c3 = new TCanvas();
+  hangle->Draw("ehist");
+  hanglemc->Draw("sameehist");
+}
+
+
+void kinrecoana::SignalDef() {
+
+  // mc signal defs
+  const string mc_signal_dimensions = "kin_reco_pmu_diff!=9999&&mc_kin_reco_pmu_diff!=9999&&mc_is_signal";
+  const string mc_signal_dimensions_physical = mc_signal_dimensions + "&&kin_reco_enu>0&&mc_kin_reco_enu>0&&kin_reco_pmu>0&&mc_kin_reco_pmu>0&&kin_reco_pmu<6&&mc_kin_reco_pmu<6";
+  const string mc_signal_dimensions_mu_contained = mc_signal_dimensions + "&&reco_muon_contained";
+  const string mc_signal_dimensions_physical_mu_contained  = mc_signal_dimensions_physical + "&&reco_muon_contained";
+
+  const string mc_signal_dimensions_1p = mc_signal_dimensions + "&&np==1&&mc_np==1";
+  const string mc_signal_dimensions_physical_1p = mc_signal_dimensions_physical + "&&np==1&&mc_np==1";
+  const string mc_signal_dimensions_mu_contained_1p = mc_signal_dimensions_mu_contained + "&&np==1&&mc_np==1";
+  const string mc_signal_dimensions_physical_mu_contained_1p = mc_signal_dimensions_physical_mu_contained + "&&np==1&&mc_np==1";
+
+  const string mc_signal_dimensions_np = mc_signal_dimensions + "&&np>1&&mc_np>1";
+  const string mc_signal_dimensions_physical_np = mc_signal_dimensions_physical + "&&np>1&&mc_np>1";
+  const string mc_signal_dimensions_mu_contained_np = mc_signal_dimensions_mu_contained + "&&np>1&&mc_np>1";
+  const string mc_signal_dimensions_physical_mu_contained_np = mc_signal_dimensions_physical_mu_contained + "&&np>1&&mc_np>1";
+
+  // reco only signal defs
+  const string signal_dimensions = "kin_reco_pmu_diff!=9999";
+  const string signal_dimensions_physical = signal_dimensions + "&&kin_reco_enu>0&&kin_reco_pmu>0&&kin_reco_pmu<6";
+  const string signal_dimensions_mu_contained = signal_dimensions + "&&reco_muon_contained";
+  const string signal_dimensions_physical_mu_contained  = signal_dimensions_physical + "&&reco_muon_contained";
+
+  const string signal_dimensions_1p = signal_dimensions + "&&np==1";
+  const string signal_dimensions_physical_1p = signal_dimensions_physical + "&&np==1";
+  const string signal_dimensions_mu_contained_1p = signal_dimensions_mu_contained + "&&np==1";
+  const string signal_dimensions_physical_mu_contained_1p = signal_dimensions_physical_mu_contained + "&&np==1";
+
+  const string signal_dimensions_np = signal_dimensions + "&&np>1";
+  const string signal_dimensions_physical_np = signal_dimensions_physical + "&&np>1";
+  const string signal_dimensions_mu_contained_np = signal_dimensions_mu_contained + "&&np>1";
+  const string signal_dimensions_physical_mu_contained_np = signal_dimensions_physical_mu_contained + "&&np>1";
+
+  const int nbins = 81;
+  float dpmin=-2, dpmax=3;
+  vector<pair<string,string>> nametodef = { 
+    {"mc_signal_1p",                      mc_signal_dimensions_1p}, 
+    {"mc_signal_physical_1p",             mc_signal_dimensions_physical_1p},
+    {"mc_signal_mu_contained_1p",         mc_signal_dimensions_mu_contained_1p},
+    {"mc_signal_physical_mu_contained_1p",mc_signal_dimensions_physical_mu_contained_1p},
+    {"mc_signal_np",                      mc_signal_dimensions_np},
+    {"mc_signal_physical_np",             mc_signal_dimensions_physical_np},
+    {"mc_signal_mu_contained_np",         mc_signal_dimensions_mu_contained_np},
+    {"mc_signal_physical_mu_contained_np",mc_signal_dimensions_physical_mu_contained_np},
+    {"signal_1p",                         signal_dimensions_1p},
+    {"signal_physical_1p",                signal_dimensions_physical_1p},
+    {"signal_mu_contained_1p",            signal_dimensions_mu_contained_1p},
+    {"signal_physical_mu_contained_1p",   signal_dimensions_physical_mu_contained_1p},
+    {"signal_np",                         signal_dimensions_np},
+    {"signal_physical_np",                signal_dimensions_physical_np},
+    {"signal_mu_contained_np",            signal_dimensions_mu_contained_np},
+    {"signal_physical_mu_contained_np",   signal_dimensions_physical_mu_contained_np}
+  };
+
+  vector<pair<string,TH2D*>> nametodphist, nametodcoshist;
+  for(auto const& namedef: nametodef){
+
+      this->SetList(false,namedef.second.c_str());
+
+      string htitle = "CC0#pi: "+namedef.first+";#Deltap_{#mu}^{true} [GeV/c];#Deltap_{#mu}^{reco} [GeV/c]";
+      string hname = "h_dp_"+namedef.first;
+      nametodphist.push_back(make_pair(namedef.first, new TH2D(hname.c_str(),htitle.c_str(),nbins,dpmin,dpmax,nbins,dpmin,dpmax)));
+
+      string draw = "mc_kin_reco_pmu_diff:kin_reco_pmu_diff>>"+hname;
+      fChain->Draw(draw.c_str());
+
+      htitle = "CC0#pi: "+namedef.first+";#Deltacos#theta_{#mu}^{true};#Deltacos#theta_{#mu}^{reco}";
+      hname = "h_dcos_"+namedef.first;
+      nametodcoshist.push_back(make_pair(namedef.first, new TH2D(hname.c_str(),htitle.c_str(),nbins,-2,2,nbins,-2,2)));
+
+      draw = "mc_kin_reco_costhetamu_diff:kin_reco_costhetamu_diff>>"+hname;
+      fChain->Draw(draw.c_str());
+
+  }
+
+  //gStyle->SetOptStat(0);
+
+  // delta p
+  // 1p
+  TCanvas * c2d_dp_1p = new TCanvas("c2d_dp_1p","",2000,1200); 
+  c2d_dp_1p->Divide(4,2);
+  
+  int i=1;
+  for(auto it = nametodphist.begin(); it!=nametodphist.end(); it++) {
+    if(it->first.find("1p")<it->first.length()) {
+       c2d_dp_1p->cd(i);
+       i++;
+       it->second->Draw("colz");
+    }
+    if(i>8) break;
+  }
+
+  // Np
+  TCanvas * c2d_dp_np = new TCanvas("c2d_dp_np","",2000,1200);
+  c2d_dp_np->Divide(4,2);
+
+  i=1;
+  //for(auto const& namehist : nametodphist) {
+  for(auto it = nametodphist.begin(); it!=nametodphist.end(); it++) {
+    if(it->first.find("np")<it->first.length()) {
+       c2d_dp_np->cd(i);
+       i++;
+       it->second->Draw("colz");
+    }
+    if(i>8) break;
+  }
+
+  // delta costheta
+  // 1p
+  TCanvas * c2d_dcos_1p = new TCanvas("c2d_dcos_1p","",2000,1200);
+  c2d_dcos_1p->Divide(4,2);
+
+  i=1;
+  for(auto const& namehist : nametodcoshist) {
+    if(namehist.first.find("1p")<namehist.first.length()) {
+       c2d_dcos_1p->cd(i);
+       i++;
+       namehist.second->Draw("colz");
+    }
+    if(i>8) break;
+  }
+
+  // np
+  TCanvas * c2d_dcos_np = new TCanvas("c2d_dcos_np","",2000,1200);
+  c2d_dcos_np->Divide(4,2);
+
+  i=1;
+  for(auto const& namehist : nametodcoshist) {
+    if(namehist.first.find("np")<namehist.first.length()) {
+       c2d_dcos_np->cd(i);
+       i++;
+       namehist.second->Draw("colz");
+    }
+    if(i>8) break;
+  }
+
+
 }
